@@ -1,0 +1,16 @@
+- version: 2
+  interfaces: ['0000:b3:00.0', 'dummy']
+  port_info:
+      - dest_mac: 08:c0:eb:88:c5:39
+        src_mac:  0c:42:a1:22:25:86
+        vlan: 15
+      - dest_mac: 08:c0:eb:88:c5:39
+        src_mac:  0c:42:a1:22:25:86
+        vlan: 15
+
+  platform:
+      master_thread_id: 0
+      latency_thread_id: 1
+      dual_if:
+        - socket: 0
+          threads: [2,3,4]
