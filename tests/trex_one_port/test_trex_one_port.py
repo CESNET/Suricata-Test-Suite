@@ -59,7 +59,6 @@ def test_trex_one_port(
 
     test_info = TestInfo(result_path=result_path,
                          traffic_duration=get_traffic_duration,
-                         traffic_generator=True,
                          heatup_duration=get_heatup_duration,
                          suricata_path_to_bin=suri_daemon.get_path_to_binary(),
                          suricata_rules_paths=[suri_daemon.rules_file],
@@ -110,6 +109,8 @@ def test_trex_one_port(
             pytest.fail("Suricata was down.")
 
         run_info.trex_server_stats = traffic_generator.get_stats()
+        run_info.trex_pretty_stats["opackets"] = run_info.trex_server_stats["total"]["opackets"]
+        run_info.trex_pretty_stats["obytes"] = run_info.trex_server_stats["total"]["obytes"]
         run_info.suricata_start_delay = suri_daemon.last_start_delay
 
         save_stats(params, request, test_info, run_info)

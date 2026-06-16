@@ -111,6 +111,8 @@ def test_http_https_smb (
 
         run_info.trex_client_stats = trex_client.get_stats()
         run_info.trex_server_stats = trex_server.get_stats()
+        run_info.trex_pretty_stats["opackets"] = int(run_info.trex_server_stats["total"]["opackets"]) + int(run_info.trex_client_stats["total"]["opackets"])
+        run_info.trex_pretty_stats["obytes"] = int(run_info.trex_server_stats["total"]["obytes"]) + int(run_info.trex_client_stats["total"]["obytes"])
         run_info.suricata_start_delay = suri_daemon.last_start_delay
 
         save_stats(params, request, test_info, run_info)
