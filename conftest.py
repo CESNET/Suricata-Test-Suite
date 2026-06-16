@@ -3,6 +3,7 @@ Author(s): Adam Kiripolský <adamkiripolsky.official@gmail.com>
 
 Copyright: (C) 2023 CESNET, z.s.p.o.
 """
+import sys
 import pytest
 import os.path
 import time
@@ -15,6 +16,7 @@ import re
 
 from dataclasses import dataclass
 from lbr_testsuite.executable import executable, remote_executor
+from lbr_trex_client.interactive import trex
 from typing import Tuple, List
 from pathlib import Path
 from itertools import product
@@ -23,6 +25,9 @@ from util.config_builder import ConfigBuilder
 
 TIME_STR = time.strftime("-".join(["%Y", "%m", "%d", "%H:%M"]))
 PATH_TO_ARTEFACTS: str = str(Path(__file__).parent / "results" / "artefacts")
+
+# alias lbr_trex_client.interactive.trex to trex for importing native TRex profiles
+sys.modules["trex"] = trex
 
 def pytest_addoption(parser):
     parser.addoption(

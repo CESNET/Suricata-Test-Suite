@@ -20,7 +20,7 @@ from typing import List
 from lbr_testsuite import trex
 from util.suricata_manager import Suricata_manager, SuriDown
 from util.suri_util import save_stats, TestInfo, RunInfo
-from assets.trex.traffic_profiles import profile_ttp_http_only
+from assets.trex.traffic_profiles.http_trex_profile import HttpProfile
 from functools import partial
 from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
 
@@ -41,6 +41,7 @@ def test_http_simple (
     get_traffic_duration : int,
     get_heatup_duration: int,
     rules_config: dict,
+    get_target_mac: str,
     get_target_vlan: int
     ):
 
@@ -64,15 +65,7 @@ def test_http_simple (
                          utilized_programs_info=utilized_programs_info
                          )
 
-    trex_client: trex.TRexAdvancedStateful = trex_manager.request_stateful(request, role="client")
-
-    trex_server : trex.TRexAdvancedStateful = trex_manager.request_stateful(request, role="server")
-
-    trex_client.set_dst_mac(trex_server.get_src_mac())
-    trex_client.set_vlan(get_target_vlan)
-
-    trex_server.set_dst_mac(trex_client.get_src_mac())
-    trex_server.set_vlan(get_target_vlan)
+    trex_client = HttpProfile(trex_manager, request, get_target_mac, get_target_vlan)
 
     test_variant_name = f"{suri_conf.test_name}_{rules_config['name']}"
 
@@ -84,34 +77,22 @@ def test_http_simple (
         print(f"\n[Progress] multiplier {idx}/{len(trex_multipliers)} | param_file={request.config.getoption('--param-file')} | params={params}")
         print(f"sending packets at {run_info.multiplier} * default cps of .pcap")
 
-        trex_server.reset()
-        trex_client.reset()
-
-        trex_profile: trex.TRexProfilePcap = profile_ttp_http_only.create_profile(run_info.multiplier)
-
-        trex_server.load_profile(trex_profile)
-        trex_client.load_profile(trex_profile)
+        trex_client.set_props(run_info.multiplier, test_info.traffic_duration)
+        trex_client.prepare()
 
         try:
            suri_daemon.start()
         except SuriDown:
             pytest.fail("Suricata is down.")
 
-        trex_server.start()
-        trex_client.start(duration=test_info.traffic_duration)
-
-        trex_client.wait_on_traffic()
-        trex_server.stop()
+        trex_client.run()
 
         try:
             suri_daemon.stop()
         except SuriDown:
             pytest.fail("Suricata was down.")
 
-        run_info.trex_client_stats = trex_client.get_stats()
-        run_info.trex_server_stats = trex_server.get_stats()
-        run_info.trex_pretty_stats["opackets"] = int(run_info.trex_server_stats["total"]["opackets"]) + int(run_info.trex_client_stats["total"]["opackets"])
-        run_info.trex_pretty_stats["obytes"] = int(run_info.trex_server_stats["total"]["obytes"]) + int(run_info.trex_client_stats["total"]["obytes"])
+        trex_client.update_runinfo(run_info)
         run_info.suricata_start_delay = suri_daemon.last_start_delay
 
         save_stats(params, request, test_info, run_info)
