@@ -114,12 +114,12 @@ def pytest_addoption(parser):
         )
     )
     parser.addoption(
-        "--pcap-file-stl",
+        "--pcap-file-one-port",
         type=str,
         default=str(Path(__file__).parent / "assets" / "trex" / "traffic_profiles" / "pcaps" / "upf_dns.pcap"),
         action="store",
         help=(
-            "Change the pcap file (path) that Trex pushes remote in STL mode."
+            "Change the pcap file (path) that Trex pushes remote in trex_one_port."
         )
     )
     parser.addoption(
@@ -199,7 +199,7 @@ def get_heatup_duration(request):
 
 @pytest.fixture()
 def get_path_to_pcap(request):
-    return request.config.getoption("--pcap-file-stl")
+    return request.config.getoption("--pcap-file-one-port")
 
 @pytest.fixture()
 def get_target_mac(request):

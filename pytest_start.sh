@@ -19,6 +19,7 @@ usage(){
   echo "-p | --pcie [PCIE] to specify, on which pcie will be Suricata tested, use multiple parameter specification or [-p|--pcie] "0000:3b:00.0 0000:3b:00.1""
   echo "-ht | --heatup [TIME] to specify the duration for which to wait before measuring statistics"
   echo "-f | --filter [rules/norules] starts Suricata with/without rules"
+  echo "-pc | --pcap [PATH] to specify the pcap file to send to Suricata. Also sets --defined-tests to *only* trex_one_port"
   exit 0
 }
 
@@ -44,8 +45,9 @@ while [ "$#" -gt 0 ]; do
                         norules) filter="norules";;
                         *) filter="$2";;
 		esac; shift 2 ;;
+	-pc | --pcap) one_port_pcap="$2"; shift 2 ;;
     -h | --help) usage ; shift ;;
-    --) shift; extra_args="$@"; break ;;
+    --) shift; read -a extra_args <<< "$@"; break ;;
     *) >&2 echo unsupported option: $1
       usage
       exit 1
@@ -103,6 +105,12 @@ if [ -z "$trex_server_port_2" ]; then
         echo "Error: No TRex port 2 specified. Use -p2 to provide a port number."
         exit 1
     fi
+fi
+
+if [ ! -z "$one_port_pcap" ]; then
+    defined_tests="trex_one_port"
+    extra_args+=("--pcap-file-one-port")
+    extra_args+=("$one_port_pcap")
 fi
 
 if [ -z "$defined_tests" ]; then
@@ -198,5 +206,5 @@ do
     --traffic-duration="$defined_time" \
     --heatup-duration="$heatup_duration" \
     -k "$filter" \
-    $defined_tests $extra_args
+    $defined_tests "${extra_args[@]}"
 done

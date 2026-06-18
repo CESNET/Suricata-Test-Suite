@@ -174,6 +174,25 @@ To run a specific test function, use syntax with -f [rules/norules]:
 
 ---
 
+### trex_one_port
+
+This is a special case where TRex will read one pcap file and send it to Suricata over one port.
+The test can be controlled directly from `pytest_start.sh` or `python3.11 -m pytest` flags.
+The relevant flags are:
+
+- for `pytests_start.sh`:
+  - `--target-mac`
+  - `--target-vlan`
+  - `--pcap`
+- for direct pytests:
+  - `--target-mac`
+  - `--target-vlan`
+  - `--pcap-file-one-port`
+
+You can learn more about these from the respective `--help` messages.
+
+---
+
 ## 5. Parameter file (param.py)
 
 The parameter file defines which Suricata configuration values to test. All combinations of parameter values are
