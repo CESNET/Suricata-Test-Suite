@@ -7,6 +7,8 @@ usage(){
   echo "Bash script to start pytest"
   echo "Options:"
   echo "-s | --server [SERVER] to specify the server, where Suricata will be running"
+  echo "-tm | --target-mac [MAC_ADDRESS] to specify where to send traffic when not using ASTF TRex."
+  echo "-tv | --target-vlan [VLAN_ID] to specify what VLAN tag to use for generated traffic."
   echo '-d | --defined-tests [TESTS] to specify tests, which have to be included, for all available tests run [-d|--defined-tests] " ",
   for specific tests: [-d|--defined-tests] "nfs_smb_simple https_simple" or use multiple parameter specification, for specific test from test file
   use [-d|--defined-tests] https_simple/test_https_simple.py::test_https_norules, by default it runs http_simple tests'
@@ -29,6 +31,8 @@ fi
 while [ "$#" -gt 0 ]; do
   case $1 in
     -s | --server) suricata_server=$2  ; shift 2  ;;
+    -tm | --target-mac) target_mac=$2 ; shift 2 ;;
+    -tv | --target-vlan) target_vlan=$2 ; shift 2 ;;
     -d | --defined-tests) defined_tests+=" "${2}; shift 2 ;;
     -t | --defined-time) defined_time=$2 ; shift 2 ;;
     -tg | --trex-server-hostname) trex_server_hostname=$2; shift 2 ;;
@@ -55,6 +59,22 @@ if [ -z "$suricata_server" ]; then
     else
         echo "Error: No suricata server specified. Use -s to provide a server hostname."
         exit 1
+    fi
+fi
+
+if [ -z "$target_mac" ]; then
+    if [ ! -z "$DEFAULT_TARGET_MAC" ]; then
+        target_mac="$DEFAULT_TARGET_MAC"
+    else
+        echo "Warning: No target MAC address specified. Some tests require this."
+    fi
+fi
+
+if [ -z "$target_vlan" ]; then
+    if [ ! -z "$DEFAULT_TARGET_VLAN" ]; then
+        target_vlan="$DEFAULT_TARGET_VLAN"
+    else
+        target_vlan=0
     fi
 fi
 
@@ -168,7 +188,9 @@ for pcie in "${pcie_array[@]}"
 do
   sed "s/PCIEaddr/$pcie/" param_template.py > param.py
   $PYTHON -m pytest -s --log-level=info --user="$(whoami)" \
-    --suricata-hugepages="4G" --change-vlan \
+    --suricata-hugepages="4G" \
+    --target-mac="$target_mac" \
+    --target-vlan="$target_vlan" \
     --trex-generator="$trex_server_hostname,$trex_server_port_1" \
     --trex-generator="$trex_server_hostname,$trex_server_port_2" \
     --remote-host="$suricata_server" --param-file="param.py" \

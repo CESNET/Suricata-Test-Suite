@@ -95,17 +95,25 @@ The file will look like this:
 
 ```bash
 # Mandatory flags
+# if these aren't set, you have to manually specify them every time
 DEFAULT_SURICATA_SERVER="claret"
 DEFAULT_TREX_SERVER="trex2"
 DEFAULT_TREX_PORT1="0000:b3:00.0"
 DEFAULT_TREX_PORT2="0000:b3:00.1"
 DEFAULT_PCIES="0000:3b:00.0"
 
+# Mandatory for single port tests
+DEFAULT_TARGET_MAC="08:C0:EB:88:C5:38"
+
 # Optional flags
+DEFAULT_TARGET_VLAN=15
 DEFAULT_TESTS="http_simple nfs_smb_simple"
 DEFAULT_TIME=300
 DEFAULT_HEATUP=10
 ```
+
+Note that an empty string ("") in `-d` (or `DEFAULT_TESTS`) is a valid value for running all tests
+and that setting `DEFAULT_TESTS` will prevent you from doing so.
 
 ### Examples
 

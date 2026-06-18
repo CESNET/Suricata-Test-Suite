@@ -8,3 +8,4 @@ bkp
 
 param.py
 results
+assets/trex/traffic_profiles/**/*.vlan???.pcap

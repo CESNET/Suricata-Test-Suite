@@ -1,5 +1,6 @@
 import dpkt
 import socket
+import os
 
 def fix_checksums(eth):
     ip = None
@@ -29,7 +30,15 @@ def fix_checksums(eth):
         udp.sum = dpkt.in_cksum(pseudo_hdr + bytes(udp))
 
 def edit_vlan(pcap_filename, vlan_id):
-    created_pcap_filename = pcap_filename.replace(".pcap", "1.pcap")
+    if vlan_id == 0:
+        return pcap_filename
+
+    # zero padded vlan_id for predicatability in .gitignore
+    created_pcap_filename = pcap_filename.replace(".pcap", f".vlan{vlan_id:03}.pcap")
+    if os.path.exists(created_pcap_filename):
+        # return already existing file
+        return created_pcap_filename
+
     with open(pcap_filename, 'rb') as f_in, open(created_pcap_filename, 'wb') as f_out:
         reader = dpkt.pcap.Reader(f_in)
         writer = dpkt.pcap.Writer(f_out)

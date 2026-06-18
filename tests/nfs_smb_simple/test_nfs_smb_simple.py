@@ -24,8 +24,6 @@ from assets.trex.traffic_profiles import nfs_smb_trex_profile
 from functools import partial
 from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
 
-TARGET_VLAN = 15 # claret
-TARGET_MAC = "08:C0:EB:88:C5:38"
 
 @pytest.mark.parametrize("rules_config", [
     {"name": "norules", "path": "/dev/null/"},
@@ -43,7 +41,8 @@ def test_nfs_smb (
     get_settings_file : str,
     get_traffic_duration : int,
     get_heatup_duration: int,
-    rules_config: dict
+    rules_config: dict,
+    get_target_vlan: int
     ):
 
     trex_manager: trex.TRexManager = trex.TRexManager(trex.TRexMachinesPool(trex_generators))
@@ -71,10 +70,10 @@ def test_nfs_smb (
     trex_server : trex.TRexAdvancedStateful = trex_manager.request_stateful(request, role="server")
 
     trex_client.set_dst_mac(trex_server.get_src_mac())
-    trex_client.set_vlan(TARGET_VLAN)
+    trex_client.set_vlan(get_target_vlan)
 
     trex_server.set_dst_mac(trex_client.get_src_mac())
-    trex_server.set_vlan(TARGET_VLAN)
+    trex_server.set_vlan(get_target_vlan)
 
     test_variant_name = f"{suri_conf.test_name}_{rules_config['name']}"
     trex_multipliers: List[float] = get_trex_multi(get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name)
