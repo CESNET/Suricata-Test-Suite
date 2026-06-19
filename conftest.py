@@ -22,7 +22,6 @@ from typing import Tuple, List
 from pathlib import Path
 from itertools import product
 from param import filter
-from assets.trex.traffic_profiles.trex_client_manager import TrexMode
 from util.config_builder import ConfigBuilder
 
 TIME_STR = time.strftime("-".join(["%Y", "%m", "%d", "%H:%M"]))
@@ -244,20 +243,6 @@ def return_filename(pcap_filename):
     match = re.search(r"[^\/]+\.pcap$", pcap_filename)
     assert match, "file is incorrectly specified"
     return match.group(0)
-
-
-def send_pcap_to_trex(pcap_filename, request):
-
-    pcaps_dir_trex = executable.Tool(
-        "mkdir -p /tmp/pcaps/ && chmod 777 /tmp/pcaps/",
-        executor=get_trex_executor(request),
-        sudo=True,
-    )
-    pcaps_dir_trex.run()
-
-    os.system(
-        f"rsync -z --checksum --update {pcap_filename} $(whoami)@{get_trex_internal(request)}.liberouter.org:/tmp/pcaps"
-    )
 
 
 @pytest.fixture(scope="function")
@@ -626,56 +611,3 @@ def af_packet_get_queues_rx_descriptors(param_file, params):
             new_parameters["rx_descriptors"] = combination[1]
             params.append(new_parameters)
         return
-
-
-def str_to_trex_mode(mode: str) -> TrexMode | None:
-    match mode.lower():
-        case "astf":
-            return TrexMode.ASTF
-        case "stf":
-            return TrexMode.STF
-        case "stl":
-            return TrexMode.STL
-        case _:
-            return None
-
-
-def get_trex_mode(request, available_modes) -> TrexMode:
-    """
-    Selects a TRex mode out of `available_modes` based on the
-    `--prefer-trex-mode` and `--force-trex-mode` flags.
-
-    `available_modes: List[TrexMode]` should be in descending order by priority.
-
-    Automatically skips tests with no usable TRex modes.
-    """
-    if (
-        not isinstance(available_modes, list)
-        or len(available_modes) < 1
-        or not isinstance(available_modes[0], TrexMode)
-    ):
-        raise ValueError("available_modes must be a list of at least one TrexMode")
-
-    forced_mode = request.config.getoption("--force-trex-mode")
-    if forced_mode is not None:
-        mode_enum = str_to_trex_mode(forced_mode)
-        if mode_enum is None:
-            raise ValueError(f"{forced_mode} is not a valid TRex mode")
-
-        if mode_enum in available_modes:
-            return mode_enum
-        else:
-            pytest.skip(f"{forced_mode} is not supported by this test")
-
-    preferred_mode = request.config.getoption("--prefer-trex-mode")
-    if preferred_mode is not None:
-        mode_enum = str_to_trex_mode(preferred_mode)
-        if mode_enum is None:
-            raise ValueError(f"{forced_mode} is not a valid TRex mode")
-
-        if mode_enum in available_modes:
-            return mode_enum
-        else:
-            return available_modes[0]
-
-    return available_modes[0]

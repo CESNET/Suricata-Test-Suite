@@ -10,6 +10,8 @@ Usage:
         pytest --trex-generator="trex,0000:65:00.0" --remote-host="claret,0000:3b:00.0" -s --log-level=info
 """
 
+from pathlib import Path
+
 import pytest
 import signal
 
@@ -18,13 +20,13 @@ from lbr_testsuite import trex
 from util.add_vlan import edit_vlan
 from util.suricata_manager import Suricata_manager, SuriDown
 from util.suri_util import save_stats, TestInfo, RunInfo
+from util.trex_util import mkdir_remote, send_to_remote
 from conftest import (
+    get_trex_internal,
     kill_pytest,
     get_trex_multi,
     suri_interface_bind,
     Suri_conf,
-    send_pcap_to_trex,
-    return_filename,
 )
 
 
@@ -86,8 +88,10 @@ def test_pcap_replay(
         get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name
     )
 
-    pcap_filename = edit_vlan(get_path_to_pcap, get_target_vlan)
-    send_pcap_to_trex(pcap_filename, request)
+    trex_hostname = get_trex_internal(request)
+    pcap_path = Path(edit_vlan(get_path_to_pcap, get_target_vlan))
+    mkdir_remote(Path("/tmp/pcaps"), trex_hostname)
+    send_to_remote(pcap_path, trex_hostname, Path("/tmp/pcaps") / pcap_path.name)
 
     for idx, multiplier in enumerate(trex_multipliers, 1):
         run_info = RunInfo(multiplier=multiplier)
@@ -105,7 +109,7 @@ def test_pcap_replay(
             pytest.fail("Suricata is down.")
 
         traffic_generator.get_handler().push_remote(
-            pcap_filename=f"/tmp/pcaps/{return_filename(pcap_filename)}",
+            pcap_filename=f"/tmp/pcaps/{pcap_path.name}",
             ports=[0],
             ipg_usec=100,
             speedup=200 * run_info.multiplier,
