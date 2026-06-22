@@ -411,16 +411,8 @@ class Suri_conf:
     test_name: str
 
 @pytest.fixture()
-def get_settings_file(get_test_name):
-    name = get_test_name
-    name = re.sub(r"test_|(norules|rules)", lambda match: "simple" if match.group(1) else "", name)
-    if "trex_one_port" in str(name) or "upf_dns" in str(name):
-        name = name.replace("_simple", "")
-    if "nfs_smb" in str(name):
-        name = "nfs_smb_simple"
-    if "http_https_smb" in str(name):
-        name = "http_https_smb_simple"
-    return str(Path(__file__).parent / "tests" / str(name) / "test_settings.json")
+def get_settings_file(request):
+    return str(request.node.path.parent / "test_settings.json")
 
 def get_capture_modes_in_run(param_file):
     file_is_accessible(param_file)
