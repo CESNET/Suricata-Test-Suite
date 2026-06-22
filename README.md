@@ -413,7 +413,7 @@ When defining an **ASTF profile** you likely want to define the `get_astf_profil
 This can either be a standalone function which creates the profile from scratch or it can use a "native" TRex profile file. The latter
 is preferred as it leads to simpler tuning and debugging. For examples see `http_trex_profile`.
 
-When defining an **STF profile** you need to define `get_stf_profile` which should return a path to an already existing
+When defining an **STF profile** you might want to define `get_stf_profile` which should return a path to an already existing
 [traffic profile](https://trex-tgn.cisco.com/trex/doc/trex_manual.html#_traffic_yaml_f_argument_of_stateful).
 You might also want to change some things in the [platform config](https://trex-tgn.cisco.com/trex/doc/trex_manual.html#_platform_yaml_cfg_argument)
 which can be done by defining an `stf_config_hook`. This function gets a `ConfigBuilder` instance with the config that would be sent to

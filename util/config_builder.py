@@ -5,7 +5,7 @@ from typing import Any, Dict, Self
 from ruamel.yaml import YAML
 from yamlpath import Processor
 from yamlpath.enums.yamlvalueformats import YAMLValueFormats
-from yamlpath.wrappers import ConsolePrinter
+from yamlpath.wrappers import ConsolePrinter, NodeCoords
 
 
 def update_recursively(destination: Dict, source: Dict, extend_lists=True) -> Dict:
@@ -33,7 +33,7 @@ class ConfigBuilder:
             if nc.node is not None:
                 raise ValueError(f"Key '{key}' already exists in the configuration")
 
-        self.__proc.set_value(key, value)
+        self.set_option(key, value)
 
         return self
 
@@ -74,6 +74,11 @@ class ConfigBuilder:
             self.delete_option(key)
             for i, item in enumerate(value):
                 self.set_option(f"{key}[{i}]", item)
+        elif isinstance(value, Dict):
+            self.__proc.set_value(key, "dummy-value")
+            nodes: list[NodeCoords] = list(self.__proc.get_nodes(key))
+            for nc in nodes:
+                nc.parent[nc.parentref] = value
         elif isinstance(value, str):
             # force quotes
             self.__proc.set_value(key, value, value_format=YAMLValueFormats.DQUOTE)
@@ -111,8 +116,6 @@ class ConfigBuilder:
         self.__yaml = YAML()
         self.__yaml.indent(sequence=4, offset=2)
         self.__yaml.preserve_quotes = True
-        self.__yaml.explicit_start = True
-        self.__yaml.explicit_end = True
 
         if input is not None:
             with open(input, mode="r") as f:
