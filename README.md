@@ -14,8 +14,9 @@ mirrored network traffic.
   - [5. Parameter file (param.py)](#5-parameter-file-parampy)
   - [6. Test settings (test\_settings.json)](#6-test-settings-test_settingsjson)
   - [7. Test execution flow](#7-test-execution-flow)
-  - [8. Results and graphs](#8-results-and-graphs)
-  - [9. Troubleshooting](#9-troubleshooting)
+  - [8. Defining new tests](#8-defining-new-tests)
+  - [9. Results and graphs](#9-results-and-graphs)
+  - [10. Troubleshooting](#10-troubleshooting)
 
 ---
 
@@ -42,7 +43,7 @@ so that you have
 [TRex daemons running on ports `8090`-`8093`](https://github.com/CESNET/lbr-testsuite/tree/master/lbr_testsuite/trex#setting-up-trex-for-trex-manager).
 and that these ports are not being blocked by the firewall.
 
-Some of these tests use TRex's ASTF mode, which requires port mirroring on the switch that your servers are connected to.
+Some of these tests use TRex's ASTF mode (see below), which requires port mirroring on the switch that your servers are connected to.
 The ASTF mode works by having a server and a client TRex instance, which need to communicate with each other. At the same
 time Suricata also needs to see this traffic, so you end up with something like this:
 ```
@@ -53,6 +54,31 @@ TRex server <--┬--> TRex client
                v
             Suricata
 ```
+
+---
+
+### Trex modes
+
+The TRex traffic generator has support for different ways of generating traffic:
+
+- ASTF mode *(advanced stateful)*
+  - all traffic is handled with a fully working TPC/IP stack
+  - there are **two TRex instances** communicating together as server and client
+  - allows for creating complex profiles combining several PCAPs
+- STL mode *(stateless)*
+  - there is only one TRex instance that creates traffic and sends it to DUT (a server running Suricata in our case)
+  - operates on profiles with streams, where each stream has a different packet template and rate of transmission
+    - packet templates can be as simple as a static packet being sent on repeat or can implement different
+      rules using the TRex field engine to modify the packet before it's sent
+  - replaying PCAPs is limited to one per port and doesn't support dynamically modifying them
+- STF mode *(stateful)*
+  - mixture of the ASTF and STL modes
+  - one TRex instance sending out traffic based on a profile
+  - useful for mixing PCAPs into traffic sent over one port
+  - main disadvantage is that PCAPs need to be transferred to the remote server
+
+Each mode has it's own strengths but STF and ASTF are most interesting for our use case, since they allow for
+defining traffic with PCAP files.
 
 3. **Set up the local environment**:
 
@@ -191,6 +217,12 @@ The relevant flags are:
 
 You can learn more about these from the respective `--help` messages.
 
+This test uses the STL TRex mode, so it only replays the PCAP with a new MAC address. If you
+need to change the VLAN that the packets are tagged with, pytest will create a new PCAP with
+the new VLAN hardcoded. Another notable property of the test (and STL TRex in general) is
+that packets are sent at a constant rate. This means that there are 0.5 microseconds between
+packets at 1x multiplier (so ~2 million pps) and this doesn't change with packet size.
+
 ---
 
 ## 5. Parameter file (param.py)
@@ -316,7 +348,7 @@ To test on a new server/PCIe, add an entry to the `servers` array for **each tes
 For each `param.py` combination (e.g., `params0`, `params1`), and for each multiplier defined in `test_settings.json`:
 
 1. **Setup** (conftest.py) — Allocate hugepages on the Suricata server, bind NIC to the appropriate driver (vfio-pci for DPDK, ethtool for AF_PACKET).
-2. **Modify config** — Apply parameter values from `param.py` to the Suricata YAML config via `yamlpath`.
+2. **Modify config** — Apply parameter values from `param.py` to the Suricata YAML config.
 3. **Start Suricata** — Launch as a daemon on the remote host via SSH.
 4. **Start TRex** — Client and server begin traffic exchange at the current multiplier rate.
 5. **Wait** — Traffic runs for the configured duration (`--traffic-duration`).
@@ -334,7 +366,68 @@ sending packets at 0.3 * default cps of .pcap
 
 ---
 
-## 8. Results and graphs
+## 8. Defining new tests
+
+When creating a new test you should follow the structure described above. There are several helpers to streamline this process.
+
+The initial setup should be already handled with pytest autouse fixtures, but if it fails for your hardware check `bind` in `conftest.py`.
+
+Tests have a baseline `norules` variant and a `rules` variant which loads `/var/lib/suricata/rules/suricata.rules`.
+To achieve this you can use pytest parametrization, which allows you to define the test flow once and use it for both variants.
+The parametrization is done with a snippet like this:
+```python
+@pytest.mark.parametrize("rules_config", [
+    {"name": "norules", "path": "/dev/null/"},
+    {"name": "rules", "path": "/var/lib/suricata/rules/suricata.rules"}
+], ids=["norules", "rules"])
+```
+Where you will need to add a `rules_config` parameter to your test function and fetch the test variant and suricata rules path from there.
+
+To modify the suricata config you should use the `ConfigBuilder` class as this has a shorthand for using `params.py` - `builder.with_params(params)`
+and in general simplifies the process of modifying the config from python.
+If you expect to be adding new keys to the config - you don't want to overwrite any existing keys - you should use the
+`builder.add_option(...)` method as this will notify you when this key already exists.
+See `util/config_builder.py` for other methods.
+
+Interfacing with Suricata and TRex is done with `Suricata_manager` and an instance of a TRex profile respectively.
+
+For details check out any of the existing tests as they are usually quite short and shouldn't be too difficult to understand now.
+
+---
+
+### Defining TRex profiles
+
+When defining the profile you should first decide which TRex mode you want to target. This will likely be STF or ASTF.
+To understand the differences you can read the note in [prerequisites](#1-prerequisites) or the official documentation
+for [STF](https://trex-tgn.cisco.com/trex/doc/trex_manual.html), [ASTF](https://trex-tgn.cisco.com/trex/doc/trex_astf.html)
+or [STL](https://trex-tgn.cisco.com/trex/doc/trex_stateless.html).
+
+For **all modes** you will want to create a subclass of `BaseTrexClientManager` and pass a list with tuples of paths to individual
+pcaps and "weights" of the pcaps. See the comment under `BaseTrexClientManager` for the interpretations of weights in the 
+individual TRex modes.
+
+If you want to place files into a specific directory on your remote server you can redefine the `get_remote_data_path` function
+which gets called for every file that gets sent to the remote.
+
+When defining an **ASTF profile** you likely want to define the `get_astf_profile` method which is used to retrive an `ASTFProfile` object.
+This can either be a standalone function which creates the profile from scratch or it can use a "native" TRex profile file. The latter
+is preferred as it leads to simpler tuning and debugging. For examples see `http_trex_profile`.
+
+When defining an **STF profile** you need to define `get_stf_profile` which should return a path to an already existing
+[traffic profile](https://trex-tgn.cisco.com/trex/doc/trex_manual.html#_traffic_yaml_f_argument_of_stateful).
+You might also want to change some things in the [platform config](https://trex-tgn.cisco.com/trex/doc/trex_manual.html#_platform_yaml_cfg_argument)
+which can be done by defining an `stf_config_hook`. This function gets a `ConfigBuilder` instance with the config that would be sent to
+trex and you can either modify this or create a completely new `ConfigBuilder` instance.
+For examples see `realistic_traffic_trex_profile.py`
+
+**STL profiles** are defined only with a list of PCAPs and should only really be used as a simple fallback when only one TRex instance is available.
+
+You are not limited to one TRex mode per profile. For example you can define a TRex profile that has a native ASTF TRex config, which is used for
+the ASTF mode and `get_stf_profile` uses it to create an STF profile dynamically.
+
+---
+
+## 9. Results and graphs
 
 Results are saved to `results/artefacts/{timestamp}/{test_name}/`.
 
@@ -348,7 +441,7 @@ Graphs are saved to `results/graphs/`.
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
