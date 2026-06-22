@@ -373,7 +373,10 @@ def get_trex_multi(test_settings_file, server, pci, test_name):
         query_result = str(jq.compile(
             f'.configuration.tests[] | select(.test_name == "{test_name}") | .servers[] | select(.server_name == "{server}") | .pci[] | select(.pcie_addr == "{pci}") | .trex_multipliers'
         ).input_value(data).all()).replace("[", "").replace("]", "")
-        multipliers = [float(i) for i in query_result.split(",")]
+        try:
+            multipliers = [float(i) for i in query_result.split(",")]
+        except ValueError:
+            raise ValueError(f"No match found for {server} and {pci} in {test_settings_file}:{test_name}")
         return multipliers
 
 def filters_apply(parametrize_args):

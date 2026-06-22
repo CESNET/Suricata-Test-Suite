@@ -446,7 +446,8 @@ Graphs are saved to `results/graphs/`.
 | Problem | Solution |
 |---------|----------|
 | `ConnectionRefusedError` on TRex port 8093 | TRex daemon is not running. |
-| `ValueError: could not convert string to float: ''` | Server/PCIe combination missing from `test_settings.json`. Add an entry for your server and PCIe address. |
+| `ValueError: No match found for ...` | Server/PCIe combination missing from `test_settings.json`. Add an entry for your server and PCIe address. |
 | Suricata won't start | Check `/var/log/suricata/suricata.log` on the Suricata server. |
 | Hugepages not allocated | Check with `cat /proc/meminfo \| grep HugePages` on the Suricata server. |
 | NIC not bound to correct driver | Run `dpdk-devbind -s` on the Suricata server to check driver bindings. |
+| `sudo -E sh -c 'lshw -c network \| grep -c <PCIe> > /tmp/pcie_count'` has failed with code 1. | Check your PCIes for typos |
