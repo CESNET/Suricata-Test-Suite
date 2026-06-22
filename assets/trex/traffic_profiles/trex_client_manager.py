@@ -15,9 +15,10 @@ from lbr_trex_client.interactive.trex.stl.trex_stl_client import STLClient
 from lbr_trex_client.stf.trex_stf_lib.trex_client import CTRexClient
 from pytest import FixtureRequest
 
-# ASTFProfile needs to be imported exactly like this
-# otherwise it fails an isintance() check
+# these need to be imported exactly like this
+# otherwise they fail type introspection
 from trex.astf import trex_astf_profile
+from trex.common.trex_exceptions import TRexError
 
 from util.add_vlan import edit_vlan
 from util.config_builder import ConfigBuilder
@@ -80,6 +81,11 @@ class BaseTrexClientManager:
                 # STL mode can only send one pcap at a time so it either
                 # needs to merge them together or replay them one by one
                 # currently it replays them one by one
+
+                # if STL mode gets used more in the future this should create a merged
+                # pcap that is at least 1M packets long, since there is a lot of overhead
+                # with small files
+
                 self.stl_generator: TRexStateless = manager.request_stateless(request)
 
                 self.stl_generator.set_dst_mac(target_mac)
@@ -272,14 +278,23 @@ class BaseTrexClientManager:
                 pcap_index = 0
                 while elapsed < self.duration:
                     pcap = self.pcaps[pcap_index]
-                    client.push_remote(
-                        pcap_filename=str(self.get_remote_data_path(Path(pcap[0]))),
-                        ports=[0],
-                        ipg_usec=self.BASE_IPG_USEC / pcap[1],
-                        speedup=self.multiplier,
-                        count=1,
-                        duration=int(self.duration - elapsed),
-                    )
+                    try:
+                        client.push_remote(
+                            pcap_filename=str(self.get_remote_data_path(Path(pcap[0]))),
+                            ports=[0],
+                            ipg_usec=self.BASE_IPG_USEC / pcap[1],
+                            speedup=self.multiplier,
+                            count=1,
+                            duration=int(self.duration - elapsed),
+                        )
+                    except TRexError:
+                        # sometimes trex takes a while to stop the previous stream properly
+                        sleep(0.05)
+
+                        # intentionally not 100% of the sleep, because with very small
+                        # pcaps this could run for a very long time even with a short duration
+                        start += 0.03
+                        continue
                     elapsed = time() - start
                     pcap_index = (pcap_index + 1) % len(self.pcaps)
 
