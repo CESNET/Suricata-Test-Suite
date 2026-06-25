@@ -20,6 +20,20 @@ from pathlib import Path
 from shutil import copy as copy_content
 
 
+class DropRateError(Exception):
+    """Custom exception for drop rate calculation errors."""
+    pass
+
+
+class GetStatsError(Exception):
+    """Custom exception for get stats errors."""
+    pass
+
+class MultiplierNotFoundError(Exception):
+    """Custom exception raised when binary search fails to find a suitable multiplier."""
+    pass
+
+
 @dataclass(frozen=True)
 class TestInfo:
     result_path: str
@@ -237,6 +251,8 @@ def save_stats(params, request, test_info: TestInfo, run_info: RunInfo):
 
     os.makedirs(Path(output_dir), exist_ok=True)
 
+    create_symlink_to_latest(test_info.result_path)
+
     if run_info.should_save_test_info:
         save_test_info(request, test_info, aggregated_output_path)
         run_info.should_save_test_info = False
@@ -246,6 +262,15 @@ def save_stats(params, request, test_info: TestInfo, run_info: RunInfo):
     save_aggregated_stats(
         test_info, run_info, output_dir, aggregated_output_path, params
     )
+
+
+def create_symlink_to_latest(result_path: str):
+    latest_symlink = (
+        Path(__file__).resolve().parent.parent / "results" / "artefacts" / "latest"
+    )
+    if latest_symlink.exists() or latest_symlink.is_symlink():
+        latest_symlink.unlink()
+    latest_symlink.symlink_to(result_path)
 
 
 def save_suricata_stats(request, output_dir: str):
@@ -368,3 +393,99 @@ def make_graph(
     plt.ylabel("Suricata packets dropped in %")
     plt.title("Suricata performance test")
     plt.savefig(path_to_graph)
+
+
+def get_trex_suri_stats(path: str = None, stats_to_get: List[str] = None):
+    """
+    Gets stats from the latest result (or specified path) in the results/artefacts directory.
+
+    When `path` is None, the symlink `results/artefacts/latest` is used to locate the
+    most recent test result. This symlink is created/updated by `save_stats()` after
+    each test run.
+
+    The returned dictionary always includes a `"_source_path"` key containing the
+    absolute path to the `aggregated.json` file the stats were read from, so callers
+    can trace where the data originated.
+
+    Inputs:
+        path         -> Optional path to a specific result folder (e.g.
+                        "results/artefacts/2026-07-03-12:00/test_https_simple").
+                        If None, the `results/artefacts/latest` symlink is resolved.
+        stats_to_get -> List of stat names to extract (e.g., ["suricata_rx_packets",
+                        "trex_tx_packets"]). If None, returns all available stats.
+    Output:
+        Dictionary with requested stats and their values, plus a "_source_path" key.
+    """
+    if path is None:
+        latest_symlink = (
+            Path(__file__).resolve().parent.parent / "results" / "artefacts" / "latest"
+        )
+        if not latest_symlink.exists():
+            raise GetStatsError(f"Latest symlink does not exist: {latest_symlink}")
+        path = str(latest_symlink.resolve())
+
+    path = Path(path)
+    path = path / "aggregated.json"
+    if not path.exists():
+        raise GetStatsError(f"No aggregated.json found in: {path}")
+
+    results = None
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                    if data.get("event") == "test_results":
+                        results = data
+                except json.JSONDecodeError:
+                    continue
+
+        if not results:
+            raise GetStatsError(f"No 'test_results' event found in: {path}")
+
+        if stats_to_get is None:
+            results["_source_path"] = str(path)
+            return results
+        else:
+            filtered = {key: results.get(key, None) for key in stats_to_get}
+            filtered["_source_path"] = str(path)
+            return filtered
+
+    except GetStatsError:
+        raise
+    except Exception as e:
+        raise GetStatsError(f"Failed to read stats: {e}")
+
+
+def get_drop_rate():
+    """
+    Gets stats from the latest result in the results/artefacts directory and calculates drop rate.
+    Input:
+        None
+    Output:
+        Drop rate in % <0, 100>. [FLOAT]
+        Raises DropRateError if unable to calculate drop rate.
+    """
+    try:
+        stats = get_trex_suri_stats(
+            stats_to_get=["suricata_rx_packets", "trex_tx_packets"]
+        )
+        suricata_rx = stats.get("suricata_rx_packets", 0)
+        trex_tx = stats.get("trex_tx_packets", 0)
+
+        if trex_tx == 0:
+            raise DropRateError("TRex sent 0 packets, cannot calculate drop rate.")
+
+        drop_rate = (1.0 - (suricata_rx / trex_tx)) * 100.0
+
+        if drop_rate < 0:
+            return 0.0
+        return float(drop_rate)
+
+    except DropRateError:
+        raise
+    except Exception as e:
+        raise DropRateError(f"Failed to calculate drop rate: {e}.")
