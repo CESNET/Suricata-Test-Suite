@@ -1,0 +1,26 @@
+[project]
+name = "suricata-test-suite"
+version = "0.1.0"
+description = "Pytest-based performance tests for Suricata IDS/IPS"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "ansible==9.13.0",
+    "ansible-core==2.16.14",
+    "ansible-runner>=2.4.3",
+    "dpkt>=1.9.8",
+    "file-read-backwards>=3.2.0",
+    "jq>=1.11.0",
+    "lbr-testsuite>=6.2.0",
+    "matplotlib>=3.11.0",
+    "pip>=26.1.2",
+    "pytest-instafail>=0.5.0",
+    "ruff>=0.15.19",
+    "setuptools>=82.0.1",
+    "wheel>=0.47.0",
+    "yamlpath>=3.9.1",
+]
+
+[tool.ruff]
+target-version = "py311"
+
