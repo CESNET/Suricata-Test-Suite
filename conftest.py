@@ -128,6 +128,20 @@ def pytest_addoption(parser):
         help=("Generate traffic with this VLAN ID. 0 (default) for untagged."),
     )
 
+    parser.addoption(
+        "--binary-search",
+        nargs="*",
+        type=float,
+        default=None,
+        action="store",
+        help=(
+            "Enable binary search mode for finding optimal Suricata speed. "
+            "Accepts up to 5 positional arguments: "
+            "<min_multiplier> <max_multiplier> <drop_rate%> <precision> <repetitions>. "
+            "Example: --binary-search 0.0 10.0 1.0 0.05 2"
+        ),
+    )
+
 
 def get_suri_executor(request) -> remote_executor.Executor:
     host_name = get_host_internal(request)
@@ -221,6 +235,35 @@ def get_target_vlan(request):
     return request.config.getoption("--target-vlan")
 
 
+@pytest.fixture()
+def b_search(request):
+    """Returns None if binary search is disabled, or a dict of params if enabled.
+
+    Dict keys: min, max, drop_rate, precision, repetitions
+    """
+    val = request.config.getoption("--binary-search")
+    if val is None:
+        return None
+    if len(val) == 0:
+        pytest.fail(
+            "--binary-search requires at least 4 arguments: "
+            "<min_multiplier> <max_multiplier> <drop_rate%> <precision> [repetitions]"
+        )
+    if len(val) < 4:
+        pytest.fail(
+            "--binary-search requires at least 4 arguments, got "
+            f"{len(val)}: {val}. "
+            "Usage: --binary-search <min> <max> <drop_rate> <precision> [repetitions]"
+        )
+    return {
+        "min": val[0],
+        "max": val[1],
+        "drop_rate": val[2],
+        "precision": val[3],
+        "repetitions": int(val[4]) if len(val) > 4 else 2,
+    }
+
+
 def return_filename(pcap_filename):
     match = re.search(r"[^\/]+\.pcap$", pcap_filename)
     assert match, "file is incorrectly specified"
@@ -228,7 +271,6 @@ def return_filename(pcap_filename):
 
 
 def send_pcap_to_trex(pcap_filename, request):
-
     pcaps_dir_trex = executable.Tool(
         "mkdir -p /tmp/pcaps/ && chmod 777 /tmp/pcaps/",
         executor=get_trex_executor(request),
@@ -341,9 +383,9 @@ def assert_available_machines(request) -> None:
     )
     stdout, stderr = print_pcie_match.run()
 
-    assert stderr == "", (
-        f"Error while gathering information about pcie interfaces, stderr: {stderr}"
-    )
+    assert (
+        stderr == ""
+    ), f"Error while gathering information about pcie interfaces, stderr: {stderr}"
     assert int(stdout) > 0, "Interface on host not found"
 
 
@@ -362,9 +404,9 @@ def hugepages_allocated(request) -> bool:
     )
     stdout, stderr = process_get_hugepages_count_str.run()
 
-    assert stderr == "", (
-        f"Error while gathering information about allocated hugepages: {stderr}"
-    )
+    assert (
+        stderr == ""
+    ), f"Error while gathering information about allocated hugepages: {stderr}"
 
     # huge_pages[0] == "HugePages_Free:", huge_pages[1] is some nubmer as `str`
     huge_pages: List[str] = stdout.split()
@@ -391,9 +433,9 @@ def check_hugepages(request) -> None:
 
 
 def file_is_accessible(file):
-    assert isfile(file) and access(file, R_OK), (
-        f"File {file} doesn't exist or isn't readable"
-    )
+    assert isfile(file) and access(
+        file, R_OK
+    ), f"File {file} doesn't exist or isn't readable"
 
 
 def import_module(param_file):
@@ -549,7 +591,6 @@ def setup_af_packet(request):
 
 
 def af_packet_get_queues_rx_descriptors(param_file, params):
-
     for parameter_path in params[-1].keys():
         af_packet_match = re.match(r"af-packet\[[0-9]+\].interface", parameter_path)
 
