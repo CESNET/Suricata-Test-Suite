@@ -16,7 +16,7 @@ from assets.trex.traffic_profiles.web_50_sites_trex_profile import Web50SitesPro
 from util.suricata_manager import Suricata_manager, SuriDown
 from util.suri_util import save_stats, TestInfo, RunInfo
 from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
-
+from util.search_util import binary_search
 
 @pytest.mark.parametrize(
     "rules_config",
@@ -26,6 +26,7 @@ from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
     ],
     ids=["norules", "rules"],
 )
+
 def test_web_50_sites(
     request: pytest.FixtureRequest,
     trex_generators: dict,
@@ -40,6 +41,13 @@ def test_web_50_sites(
     rules_config: dict,
     get_target_mac: str,
     get_target_vlan: int,
+    b_search: bool,
+    min_search_multiplier: float,
+    max_search_multiplier: float,
+    drop_rate: float,
+    precision: float,
+    max_cycles: int,
+    repetitions: int,
 ):
 
     trex_manager: trex.TRexManager = trex.TRexManager(
@@ -75,30 +83,83 @@ def test_web_50_sites(
         get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name
     )
 
-    for idx, multiplier in enumerate(trex_multipliers, 1):
-        run_info = RunInfo(multiplier=multiplier)
+    tester = Test_run(trex_client, suri_daemon, test_info, params, request)
 
-        print(
-            f"\n[Progress] multiplier {idx}/{len(trex_multipliers)} | param_file={request.config.getoption('--param-file')} | params={params}"
+    if b_search:
+        max_multiplier = binary_search(
+            tester.test_run,
+            min_search_multiplier,
+            max_search_multiplier,
+            drop_rate,
+            precision,
+            max_cycles,
+            repetitions,
         )
-        print(f"sending packets at {run_info.multiplier} * default cps of .pcap")
+        print(
+            f"\n[FINISH] Maximum multiplier found is: {max_multiplier:.4f}. | param_file={request.config.getoption('--param-file')} | params={params}\n\n"
+        )
+    else:
+        for idx, multiplier in enumerate(trex_multipliers, 1):
+            print(
+                f"\n[Progress] multiplier {idx}/{len(trex_multipliers)} | param_file={request.config.getoption('--param-file')} | params={params}"
+            )
+            print(f"sending packets at {run_info.multiplier} * default cps of .pcap")
+            tester.test_run(multiplier)
+    def test_run(self, multiplier: float, duration: int = None):
+        if duration is None:
+            duration = self.test_info.traffic_duration
 
-        trex_client.set_props(run_info.multiplier, test_info.traffic_duration)
-        trex_client.prepare()
+        self.trex_client.set_props(multiplier, duration)
+        self.trex_client.prepare()
 
         try:
-            suri_daemon.start()
+            self.suri_daemon.start()
         except SuriDown:
             pytest.fail("Suricata is down.")
 
-        trex_client.run()
+        self.trex_client.run()
 
         try:
-            suri_daemon.stop()
+            self.suri_daemon.stop()
         except SuriDown:
             pytest.fail("Suricata was down.")
 
-        trex_client.update_runinfo(run_info)
-        run_info.suricata_start_delay = suri_daemon.last_start_delay
+        run_info = RunInfo(multiplier=multiplier)
+        self.trex_client.update_runinfo(run_info)
+        run_info.suricata_start_delay = self.suri_daemon.last_start_delay
 
-        save_stats(params, request, test_info, run_info)
+        save_stats(self.params, self.request, self.test_info, run_info)
+
+class Test_run:
+    __test__ = False
+    def __init__(self, client, suri_daemon, test_info, params, request):
+        self.trex_client = client
+        self.suri_daemon = suri_daemon
+        self.test_info = test_info
+        self.params = params
+        self.request = request
+
+    def test_run(self, multiplier: float, duration: int = None):
+        if duration is None:
+            duration = self.test_info.traffic_duration
+
+        self.trex_client.set_props(multiplier, duration)
+        self.trex_client.prepare()
+
+        try:
+            self.suri_daemon.start()
+        except SuriDown:
+            pytest.fail("Suricata is down.")
+
+        self.trex_client.run()
+
+        try:
+            self.suri_daemon.stop()
+        except SuriDown:
+            pytest.fail("Suricata was down.")
+
+        run_info = RunInfo(multiplier=multiplier)
+        self.trex_client.update_runinfo(run_info)
+        run_info.suricata_start_delay = self.suri_daemon.last_start_delay
+
+        save_stats(self.params, self.request, self.test_info, run_info)
