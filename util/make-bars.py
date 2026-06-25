@@ -148,7 +148,7 @@ def main(files, network_cards):
 
 
 if __name__ == "__main__":
-    # warning -> the order of json matters -> without rules, suricata software rules, rte_flow rules FIRT MELANOX, THEN ICE
+    # warning -> the order of json matters -> without rules, Suricata software rules, rte_flow rules FIRT MELANOX, THEN ICE
     if len(sys.argv) < 1:
         raise SyntaxError("Insufficient arguments.")
 

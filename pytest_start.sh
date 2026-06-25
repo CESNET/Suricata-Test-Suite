@@ -59,7 +59,7 @@ if [ -z "$suricata_server" ]; then
     if [ ! -z "$DEFAULT_SURICATA_SERVER" ]; then
         suricata_server="$DEFAULT_SURICATA_SERVER"
     else
-        echo "Error: No suricata server specified. Use -s to provide a server hostname."
+        echo "Error: No Suricata server specified. Use -s to provide a server hostname."
         exit 1
     fi
 fi

@@ -132,12 +132,12 @@ class Suricata_manager:
             self.conf_file = conf_file
 
     def _set_rules(self, rules_file: str):
-        """Set suricata rules file and copy the file onto remote machine running suricata.
+        """Set Suricata rules file and copy the file onto remote machine running suricata.
 
         Parameters
         ----------
         rules_file: str
-            Path to local suricata rules file
+            Path to local Suricata rules file
         """
         if rules_file != DEFAULT_RULES_FILE and "/dev/null" not in rules_file:
             file_name: str = rules_file.split("/")[-1]
@@ -159,7 +159,7 @@ class Suricata_manager:
         )
         stdout, stderr = process_copy_conf_to_remote.run()
 
-        assert stderr == "", "Could not find suricata in PATH"
+        assert stderr == "", "Could not find Suricata in PATH"
         return stdout.strip()
 
     def _change_remote_dir_permissions(self):
@@ -227,7 +227,7 @@ class Suricata_manager:
             try:
                 stdout, _ = process_wait_on_end.run()
                 can_continue = not is_running(stdout)
-                print("Other suricata instance is running, waiting for finish")
+                print("Other Suricata instance is running, waiting for finish")
                 self.kill()
 
             except ExecutableProcessError:
@@ -235,7 +235,7 @@ class Suricata_manager:
 
     def start(self) -> None:
         """Remove Suricata PID file and local and remote
-        eve.json/eve-stats.json statistic files and start suricata as a daemon
+        eve.json/eve-stats.json statistic files and start Suricata as a daemon
         on remote machine.
         """
 

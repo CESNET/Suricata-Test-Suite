@@ -381,9 +381,9 @@ The parametrization is done with a snippet like this:
     {"name": "rules", "path": "/var/lib/suricata/rules/suricata.rules"}
 ], ids=["norules", "rules"])
 ```
-Where you will need to add a `rules_config` parameter to your test function and fetch the test variant and suricata rules path from there.
+Where you will need to add a `rules_config` parameter to your test function and fetch the test variant and Suricata rules path from there.
 
-To modify the suricata config you should use the `ConfigBuilder` class as this has a shorthand for using `params.py` - `builder.with_params(params)`
+To modify the Suricata config you should use the `ConfigBuilder` class as this has a shorthand for using `params.py` - `builder.with_params(params)`
 and in general simplifies the process of modifying the config from python.
 If you expect to be adding new keys to the config - you don't want to overwrite any existing keys - you should use the
 `builder.add_option(...)` method as this will notify you when this key already exists.
