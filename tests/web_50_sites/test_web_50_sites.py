@@ -13,10 +13,11 @@ from typing import List
 from lbr_testsuite import trex
 from assets.trex.traffic_profiles.trex_client_manager import TrexMode
 from assets.trex.traffic_profiles.web_50_sites_trex_profile import Web50SitesProfile
-from util.suricata_manager import Suricata_manager, SuriDown
-from util.suri_util import save_stats, TestInfo, RunInfo
+from util.suricata_manager import Suricata_manager
+from util.suri_util import TestInfo, get_drop_rate
 from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
-
+from util.multiplier_iterator import create_multiplier_iterator
+from util.test_runner import AstfTestRun
 
 @pytest.mark.parametrize(
     "rules_config",
@@ -26,6 +27,7 @@ from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
     ],
     ids=["norules", "rules"],
 )
+
 def test_web_50_sites(
     request: pytest.FixtureRequest,
     trex_generators: dict,
@@ -40,6 +42,7 @@ def test_web_50_sites(
     rules_config: dict,
     get_target_mac: str,
     get_target_vlan: int,
+    b_search: dict | None,
 ):
 
     trex_manager: trex.TRexManager = trex.TRexManager(
@@ -75,30 +78,17 @@ def test_web_50_sites(
         get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name
     )
 
-    for idx, multiplier in enumerate(trex_multipliers, 1):
-        run_info = RunInfo(multiplier=multiplier)
+    tester = AstfTestRun(trex_client, suri_daemon, test_info, params, request)
 
+    mult_iter = create_multiplier_iterator(b_search, trex_multipliers)
+    for multiplier in mult_iter:
         print(
-            f"\n[Progress] multiplier {idx}/{len(trex_multipliers)} | param_file={request.config.getoption('--param-file')} | params={params}"
+            f"\n[Progress] multiplier {multiplier:.4f} | param_file={request.config.getoption('--param-file')} | params={params}"
         )
-        print(f"sending packets at {run_info.multiplier} * default cps of .pcap")
+        tester.execute(multiplier)
+        mult_iter.set_result(get_drop_rate())
 
-        trex_client.set_props(run_info.multiplier, test_info.traffic_duration)
-        trex_client.prepare()
-
-        try:
-            suri_daemon.start()
-        except SuriDown:
-            pytest.fail("Suricata is down.")
-
-        trex_client.run()
-
-        try:
-            suri_daemon.stop()
-        except SuriDown:
-            pytest.fail("Suricata was down.")
-
-        trex_client.update_runinfo(run_info)
-        run_info.suricata_start_delay = suri_daemon.last_start_delay
-
-        save_stats(params, request, test_info, run_info)
+    if mult_iter.result is not None:
+        print(
+            f"\n[FINISH] Maximum multiplier found is: {mult_iter.result:.4f}. | param_file={request.config.getoption('--param-file')} | params={params}\n\n"
+        )

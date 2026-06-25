@@ -10,26 +10,25 @@ Usage:
         pytest --trex-generator="trex,0000:65:00.0" --remote-host="claret,0000:3b:00.0" -s --log-level=info
 """
 
+
 import pytest
 import signal
 
 from typing import List
 from lbr_testsuite import trex
-from util.suricata_manager import Suricata_manager, SuriDown
-from util.suri_util import save_stats, TestInfo, RunInfo
+from util.suricata_manager import Suricata_manager
+from util.suri_util import TestInfo, get_drop_rate
 from assets.trex.traffic_profiles.https_trex_profile.profile import HttpsProfile
 from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
+from util.multiplier_iterator import create_multiplier_iterator
+from util.test_runner import AstfTestRun
 
+@pytest.mark.parametrize("rules_config", [
+    {"name": "norules", "path": "/dev/null/"},
+    {"name": "rules", "path": "/var/lib/suricata/rules/suricata.rules"}
+], ids=["norules", "rules"])
 
-@pytest.mark.parametrize(
-    "rules_config",
-    [
-        {"name": "norules", "path": "/dev/null/"},
-        {"name": "rules", "path": "/var/lib/suricata/rules/suricata.rules"},
-    ],
-    ids=["norules", "rules"],
-)
-def test_https_simple(
+def test_https_simple (
     request: pytest.FixtureRequest,
     trex_generators: dict,
     result_path: str,
@@ -37,69 +36,54 @@ def test_https_simple(
     utilized_programs_info: dict,
     params: dict,
     suri_conf: Suri_conf,
-    get_settings_file: str,
-    get_traffic_duration: int,
+    get_settings_file : str,
+    get_traffic_duration : int,
     get_heatup_duration: int,
     rules_config: dict,
     get_target_mac: str,
     get_target_vlan: int,
+    b_search: dict | None,
 ):
-
     trex_manager: trex.TRexManager = trex.TRexManager(
         trex.TRexMachinesPool(trex_generators)
     )
 
-    suri_daemon: Suricata_manager = Suricata_manager(
-        request,
-        suricata_tmp_stats_path,
-        interface=suri_interface_bind(request)[0],
-        capture_mode=suri_interface_bind(request)[1],
-        conf_file=suri_conf.conf_file.with_params(params).build(),
-        rules_file=rules_config["path"],
-    )
+    trex_manager: trex.TRexManager = trex.TRexManager(trex.TRexMachinesPool(trex_generators))
+
+    suri_daemon: Suricata_manager = Suricata_manager(request,
+                                                     suricata_tmp_stats_path,
+                                                     interface=suri_interface_bind(request)[0],
+                                                     capture_mode=suri_interface_bind(request)[1],
+                                                     conf_file=suri_conf.conf_file.with_params(params).build(),
+                                                     rules_file=rules_config["path"],
+                                                     )
     signal.signal(signal.SIGINT, kill_pytest)
 
-    test_info = TestInfo(
-        result_path=result_path,
-        traffic_duration=get_traffic_duration,
-        heatup_duration=get_heatup_duration,
-        suricata_path_to_bin=suri_daemon.get_path_to_binary(),
-        suricata_rules_paths=[suri_daemon.rules_file],
-        suricata_config_path=suri_daemon.conf_file,
-        utilized_programs_info=utilized_programs_info,
-    )
+    test_info = TestInfo(result_path=result_path,
+                         traffic_duration=get_traffic_duration,
+                         heatup_duration=get_heatup_duration,
+                         suricata_path_to_bin=suri_daemon.get_path_to_binary(),
+                         suricata_rules_paths=[suri_daemon.rules_file],
+                         suricata_config_path=suri_daemon.conf_file,
+                         utilized_programs_info=utilized_programs_info
+                         )
 
     trex_client = HttpsProfile(trex_manager, request, get_target_mac, get_target_vlan)
 
     test_variant_name = f"{suri_conf.test_name}_{rules_config['name']}"
-    trex_multipliers: List[float] = get_trex_multi(
-        get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name
-    )
+    trex_multipliers: List[float] = get_trex_multi(get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name)
 
-    for idx, multiplier in enumerate(trex_multipliers, 1):
-        run_info = RunInfo(multiplier=multiplier)
+    tester = AstfTestRun(trex_client, suri_daemon, test_info, params, request)
 
+    mult_iter = create_multiplier_iterator(b_search, trex_multipliers)
+    for multiplier in mult_iter:
         print(
-            f"\n[Progress] multiplier {idx}/{len(trex_multipliers)} | param_file={request.config.getoption('--param-file')} | params={params}"
+            f"\n[Progress] multiplier {multiplier:.4f} | param_file={request.config.getoption('--param-file')} | params={params}"
         )
-        print(f"sending packets at {run_info.multiplier} * default cps of .pcap")
+        tester.execute(multiplier)
+        mult_iter.set_result(get_drop_rate())
 
-        trex_client.set_props(run_info.multiplier, test_info.traffic_duration)
-        trex_client.prepare()
-
-        try:
-            suri_daemon.start()
-        except SuriDown:
-            pytest.fail("Suricata is down.")
-
-        trex_client.run()
-
-        try:
-            suri_daemon.stop()
-        except SuriDown:
-            pytest.fail("Suricata was down.")
-
-        trex_client.update_runinfo(run_info)
-        run_info.suricata_start_delay = suri_daemon.last_start_delay
-
-        save_stats(params, request, test_info, run_info)
+    if mult_iter.result is not None:
+        print(
+            f"\n[FINISH] Maximum multiplier found is: {mult_iter.result:.4f}. | param_file={request.config.getoption('--param-file')} | params={params}\n\n"
+        )
