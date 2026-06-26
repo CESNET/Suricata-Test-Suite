@@ -117,8 +117,8 @@ DEFAULT_HEATUP=10
 # seconds each.
 
 # Quick run: run a single test function for 20s with rules
-./pytest_start.sh -s dpdk-test2 -d http_simple -t 20 -nit -nis -nits -tg trex -p 0000:05:00.0 /
-	-f rules
+./pytest_start.sh -s dpdk-test2 -d http_simple -t 20 -tg trex -p 0000:05:00.0 /
+	-p1 0000:65:00.0 -p2 0000:65:00.0 -f rules
 
 # Multiple PCIe addresses
 ./pytest_start.sh -s claret -d http_simple -t 60 -p 0000:3b:00.0 -p 0000:af:00.0
