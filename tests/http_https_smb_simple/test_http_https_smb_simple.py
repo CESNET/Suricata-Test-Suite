@@ -21,6 +21,7 @@ from assets.trex.traffic_profiles.http_https_smb_trex_profile.profile import (
     HttpHttpsSmbProfile,
 )
 from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
+from util.trex_util import TrexMode, get_trex_mode
 
 
 @pytest.mark.parametrize(
@@ -71,8 +72,9 @@ def test_http_https_smb(
         utilized_programs_info=utilized_programs_info,
     )
 
+    trex_mode = get_trex_mode(request, [TrexMode.ASTF, TrexMode.STF])
     trex_client = HttpHttpsSmbProfile(
-        trex_manager, request, get_target_mac, get_target_vlan
+        trex_manager, request, get_target_mac, get_target_vlan, mode=trex_mode
     )
 
     test_variant_name = f"{suri_conf.test_name}_{rules_config['name']}"
