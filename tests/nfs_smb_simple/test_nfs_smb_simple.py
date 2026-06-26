@@ -19,6 +19,7 @@ from util.suricata_manager import Suricata_manager, SuriDown
 from util.suri_util import save_stats, TestInfo, RunInfo
 from assets.trex.traffic_profiles.nfs_smb_trex_profile.profile import NfsSmbProfile
 from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
+from util.trex_util import TrexMode, get_trex_mode
 
 
 @pytest.mark.parametrize(
@@ -69,7 +70,10 @@ def test_nfs_smb(
         utilized_programs_info=utilized_programs_info,
     )
 
-    trex_client = NfsSmbProfile(trex_manager, request, get_target_mac, get_target_vlan)
+    trex_mode = get_trex_mode(request, [TrexMode.ASTF, TrexMode.STF])
+    trex_client = NfsSmbProfile(
+        trex_manager, request, get_target_mac, get_target_vlan, mode=trex_mode
+    )
 
     test_variant_name = f"{suri_conf.test_name}_{rules_config['name']}"
     trex_multipliers: List[float] = get_trex_multi(
