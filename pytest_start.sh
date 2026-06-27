@@ -59,7 +59,7 @@ while [ "$#" -gt 0 ]; do
                         *) filter="$2";;
 		esac; shift 2 ;;
     -h | --help) usage ; shift ;;
-    -bsh | --binary-search-help) binary_search_usage ; shift ;;
+    -bsh | --binary-search-help) binary_search_usage ; exit 1 ; shift ;;
     -bs | --binary_search) binary_search_enabled=true; shift ;;
     -mm | --min-multiplier) min_multiplier=$2; shift 2 ;;
     -xm | --max-multiplier) max_multiplier=$2; shift 2 ;;
