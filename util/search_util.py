@@ -66,7 +66,7 @@ def binary_search(
 
     for i in range(1, max_cycles + 1):
 
-        print(f"\n[INFO] ------ Cycle: {i}/{max_cycles} ------- [INFO]")
+        print(f"\n[PROGRESS] ------ Cycle: {i}/{max_cycles} ------- [PROGRESS]")
 
         mid = (mini + maxi) / 2
         check = test_function(drop_rate, mid, repetitions, function)
@@ -110,7 +110,7 @@ def test_function(target: float, multiplier: float, repetitions: int, function):
     """
     drop_rate_arr = []
     for i in range(1, repetitions + 1):
-        print(f"\n[INFO] Repetition number: {i}/{repetitions} of multiplier {multiplier}.")
+        print(f"\n[PROGRESS] Repetition number: {i}/{repetitions} of multiplier {multiplier}.")
         function(multiplier)
         drop_rate_addition = get_drop_rate()
         if(drop_rate_addition == -1.0):
@@ -119,7 +119,7 @@ def test_function(target: float, multiplier: float, repetitions: int, function):
         print(f"[INFO] Drop rate: {drop_rate_arr[-1]:.4f}% for repetition {i}.")
 
     drop_rate_avg = sum(drop_rate_arr) / len(drop_rate_arr)
-    print(f"\n[PROGRESS] Average drop rate for multiplier {multiplier}: {drop_rate_avg:.4f}%.")
+    print(f"\n[INFO] Average drop rate for multiplier {multiplier}: {drop_rate_avg:.4f}%.")
 
     if drop_rate_avg > target:
         return -1
