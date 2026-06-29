@@ -4,6 +4,7 @@ from typing import Any, Dict, Self
 
 from ruamel.yaml import YAML
 from yamlpath import Processor
+from yamlpath.enums.yamlvalueformats import YAMLValueFormats
 from yamlpath.wrappers import ConsolePrinter
 
 
@@ -68,7 +69,17 @@ class ConfigBuilder:
         """
         Allows for nested keys to be set using dot notation, e.g. "app-layer.protocols.dns.tcp.enabled"
         """
-        self.__proc.set_value(key, value)
+        if isinstance(value, list):
+            # force arrays
+            self.delete_option(key)
+            for i, item in enumerate(value):
+                self.set_option(f"{key}[{i}]", item)
+        elif isinstance(value, str):
+            # force quotes
+            self.__proc.set_value(key, value, value_format=YAMLValueFormats.DQUOTE)
+        else:
+            self.__proc.set_value(key, value)
+
         return self
 
     def delete_option(self, key: str) -> Self:

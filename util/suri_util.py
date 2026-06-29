@@ -30,7 +30,6 @@ class TestInfo:
     suricata_config_path: str
     comment: str = ""
     utilized_programs_info: dict = field(default_factory=dict)
-    traffic_generator: bool = False
     __test__: bool = False  # tell pytest that this class is not a test case
 
 
@@ -39,8 +38,9 @@ class RunInfo:
     multiplier: float = 0
     should_save_test_info: bool = True
     suricata_start_delay: int = 0
-    trex_client_stats: dict = field(default_factory=dict)
-    trex_server_stats: dict = field(default_factory=dict)
+    trex_client_stats: dict | None = None
+    trex_server_stats: dict | None = None
+    trex_pretty_stats: dict = field(default_factory=dict)
 
 
 def get_last_stats_line(file: str) -> str:
@@ -242,7 +242,7 @@ def save_stats(params, request, test_info: TestInfo, run_info: RunInfo):
         run_info.should_save_test_info = False
 
     save_suricata_stats(request, output_dir)
-    save_trex_stats(test_info, run_info, output_dir)
+    save_trex_stats(run_info, output_dir)
     save_aggregated_stats(
         test_info, run_info, output_dir, aggregated_output_path, params
     )
@@ -265,17 +265,16 @@ def save_suricata_stats(request, output_dir: str):
     copy_content(suricata_tmp_eve_stats_path, suricata_output_eve_stats_path)
 
 
-def save_trex_stats(test_info: TestInfo, run_info: RunInfo, output_dir: str):
-    if test_info.traffic_generator is False:
+def save_trex_stats(run_info: RunInfo, output_dir: str):
+    if run_info.trex_client_stats is not None:
         trex_client_output_path: str = os.path.join(output_dir, "trex_client.json")
-    trex_server_output_path: str = os.path.join(output_dir, "trex_server.json")
-
-    if test_info.traffic_generator is False:
         with open(trex_client_output_path, "w") as trex_client_stats_file:
             json.dump(run_info.trex_client_stats, trex_client_stats_file)
 
-    with open(trex_server_output_path, "w") as trex_server_stats_file:
-        json.dump(run_info.trex_server_stats, trex_server_stats_file)
+    if run_info.trex_server_stats is not None:
+        trex_server_output_path: str = os.path.join(output_dir, "trex_server.json")
+        with open(trex_server_output_path, "w") as trex_server_stats_file:
+            json.dump(run_info.trex_server_stats, trex_server_stats_file)
 
 
 def save_aggregated_stats(
@@ -302,21 +301,11 @@ def save_aggregated_stats(
         "suricata_rte_flow_filtered_packets": get_flow_filtered_packets_from_file(
             eve_stats_path, skip=delay_time
         ),
-        "trex_tx_packets": run_info.trex_server_stats["total"]["opackets"]
-        + (
-            run_info.trex_client_stats["total"]["opackets"]
-            if not test_info.traffic_generator
-            else 0
-        )
+        "trex_tx_packets": run_info.trex_pretty_stats["opackets"]
         - get_total_packets_until(
             eve_stats_path, test_info.heatup_duration + run_info.suricata_start_delay
         ),
-        "trex_tx_bytes": run_info.trex_server_stats["total"]["obytes"]
-        + (
-            run_info.trex_client_stats["total"]["obytes"]
-            if not test_info.traffic_generator
-            else 0
-        )
+        "trex_tx_bytes": run_info.trex_pretty_stats["obytes"]
         - get_total_bytes_until(
             eve_stats_path, test_info.heatup_duration + run_info.suricata_start_delay
         ),

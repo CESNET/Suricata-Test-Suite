@@ -1,13 +1,9 @@
 """
-Author(s): Adam Kiripolský <adamkiripolsky.official@gmail.com>
+Author(s): Matyáš Sedmidubský <sedmidubsky@cesnet.cz>
 
-Copyright: (C) 2023 CESNET, z.s.p.o.
+Copyright: (C) 2026 CESNET, z.s.p.o.
 
 Suricata testing module.
-
-Usage:
-    Without topology:
-        pytest --trex-generator="trex,0000:65:00.0" --remote-host="claret,0000:3b:00.0" -s --log-level=info
 """
 
 import pytest
@@ -15,20 +11,11 @@ import signal
 
 from typing import List
 from lbr_testsuite import trex
-from util.add_vlan import edit_vlan
+from assets.trex.traffic_profiles.trex_client_manager import TrexMode
+from assets.trex.traffic_profiles.web_50_sites_trex_profile import Web50SitesProfile
 from util.suricata_manager import Suricata_manager, SuriDown
 from util.suri_util import save_stats, TestInfo, RunInfo
-from conftest import (
-    kill_pytest,
-    get_trex_multi,
-    suri_interface_bind,
-    Suri_conf,
-    send_pcap_to_trex,
-    return_filename,
-)
-
-TARGET_VLAN = 15  # claret
-TARGET_MAC = "08:C0:EB:88:C5:38"
+from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
 
 
 @pytest.mark.parametrize(
@@ -39,7 +26,7 @@ TARGET_MAC = "08:C0:EB:88:C5:38"
     ],
     ids=["norules", "rules"],
 )
-def test_trex_one_port(
+def test_web_50_sites(
     request: pytest.FixtureRequest,
     trex_generators: dict,
     result_path: str,
@@ -50,10 +37,11 @@ def test_trex_one_port(
     get_settings_file: str,
     get_traffic_duration: int,
     get_heatup_duration: int,
-    get_path_to_pcap: str,
-    change_vlan_id: bool,
     rules_config: dict,
+    get_target_mac: str,
+    get_target_vlan: int,
 ):
+
     trex_manager: trex.TRexManager = trex.TRexManager(
         trex.TRexMachinesPool(trex_generators)
     )
@@ -71,7 +59,6 @@ def test_trex_one_port(
     test_info = TestInfo(
         result_path=result_path,
         traffic_duration=get_traffic_duration,
-        traffic_generator=True,
         heatup_duration=get_heatup_duration,
         suricata_path_to_bin=suri_daemon.get_path_to_binary(),
         suricata_rules_paths=[suri_daemon.rules_file],
@@ -79,21 +66,14 @@ def test_trex_one_port(
         utilized_programs_info=utilized_programs_info,
     )
 
-    traffic_generator: trex.TRexStateless = trex_manager.request_stateless(request)
-    traffic_generator.set_dst_mac(TARGET_MAC)
-    traffic_generator.set_vlan(TARGET_VLAN)
+    trex_client = Web50SitesProfile(
+        trex_manager, request, get_target_mac, get_target_vlan, mode=TrexMode.STF
+    )
 
     test_variant_name = f"{suri_conf.test_name}_{rules_config['name']}"
     trex_multipliers: List[float] = get_trex_multi(
         get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name
     )
-
-    if change_vlan_id:
-        pcap_filename = edit_vlan(get_path_to_pcap, TARGET_VLAN)
-    else:
-        pcap_filename = get_path_to_pcap
-
-    send_pcap_to_trex(pcap_filename, request)
 
     for idx, multiplier in enumerate(trex_multipliers, 1):
         run_info = RunInfo(multiplier=multiplier)
@@ -103,29 +83,22 @@ def test_trex_one_port(
         )
         print(f"sending packets at {run_info.multiplier} * default cps of .pcap")
 
-        traffic_generator.reset()
+        trex_client.set_props(run_info.multiplier, test_info.traffic_duration)
+        trex_client.prepare()
 
         try:
             suri_daemon.start()
         except SuriDown:
             pytest.fail("Suricata is down.")
 
-        traffic_generator.get_handler().push_remote(
-            pcap_filename=f"/tmp/pcaps/{return_filename(pcap_filename)}",
-            ports=[0],
-            ipg_usec=100,
-            speedup=200 * run_info.multiplier,
-            duration=test_info.traffic_duration,
-        )
-
-        traffic_generator.wait_on_traffic()
+        trex_client.run()
 
         try:
             suri_daemon.stop()
         except SuriDown:
             pytest.fail("Suricata was down.")
 
-        run_info.trex_server_stats = traffic_generator.get_stats()
+        trex_client.update_runinfo(run_info)
         run_info.suricata_start_delay = suri_daemon.last_start_delay
 
         save_stats(params, request, test_info, run_info)

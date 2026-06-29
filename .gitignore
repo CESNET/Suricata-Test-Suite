@@ -8,3 +8,6 @@ bkp
 
 param.py
 results
+
+# all pcaps with the format <name>.vlan___.pcap == pcaps with modified vlans
+assets/trex/traffic_profiles/**/*.vlan???.pcap

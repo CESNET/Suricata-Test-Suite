@@ -4,6 +4,7 @@ Author(s): Adam Kiripolský <adamkiripolsky.official@gmail.com>
 Copyright: (C) 2023 CESNET, z.s.p.o.
 """
 
+import sys
 import pytest
 import os.path
 import time
@@ -16,6 +17,7 @@ import re
 
 from dataclasses import dataclass
 from lbr_testsuite.executable import executable, remote_executor
+from lbr_trex_client.interactive import trex
 from typing import Tuple, List
 from pathlib import Path
 from itertools import product
@@ -24,6 +26,9 @@ from util.config_builder import ConfigBuilder
 
 TIME_STR = time.strftime("-".join(["%Y", "%m", "%d", "%H:%M"]))
 PATH_TO_ARTEFACTS: str = str(Path(__file__).parent / "results" / "artefacts")
+
+# alias lbr_trex_client.interactive.trex to trex for importing native TRex profiles
+sys.modules["trex"] = trex
 
 
 def pytest_addoption(parser):
@@ -95,7 +100,7 @@ def pytest_addoption(parser):
         help=("Specify for how long to wait before measuring statistics"),
     )
     parser.addoption(
-        "--pcap-file-stl",
+        "--pcap-replay",
         type=str,
         default=str(
             Path(__file__).parent
@@ -106,14 +111,21 @@ def pytest_addoption(parser):
             / "upf_dns.pcap"
         ),
         action="store",
-        help=("Change the pcap file (path) that Trex pushes remote in STL mode."),
+        help=("Pcap file to replay in pcap_replay."),
     )
-
     parser.addoption(
-        "--change-vlan",
-        default=False,
-        action="store_true",
-        help=("Change VLAN ID in pcap file."),
+        "--target-mac",
+        type=str,
+        default="",
+        action="store",
+        help=("Mac address to send traffic to when not using ASTF TRex."),
+    )
+    parser.addoption(
+        "--target-vlan",
+        type=int,
+        default=0,
+        action="store",
+        help=("Generate traffic with this VLAN ID. 0 (default) for untagged."),
     )
 
 
@@ -196,12 +208,17 @@ def get_heatup_duration(request):
 
 @pytest.fixture()
 def get_path_to_pcap(request):
-    return request.config.getoption("--pcap-file-stl")
+    return request.config.getoption("--pcap-replay")
 
 
 @pytest.fixture()
-def change_vlan_id(request):
-    return request.config.getoption("--change-vlan")
+def get_target_mac(request):
+    return request.config.getoption("--target-mac")
+
+
+@pytest.fixture()
+def get_target_vlan(request):
+    return request.config.getoption("--target-vlan")
 
 
 def return_filename(pcap_filename):
@@ -417,7 +434,12 @@ def get_trex_multi(test_settings_file, server, pci, test_name):
             .replace("[", "")
             .replace("]", "")
         )
-        multipliers = [float(i) for i in query_result.split(",")]
+        try:
+            multipliers = [float(i) for i in query_result.split(",")]
+        except ValueError:
+            raise ValueError(
+                f"No match found for {server} and {pci} in {test_settings_file}:{test_name}"
+            )
         return multipliers
 
 
@@ -463,18 +485,8 @@ class Suri_conf:
 
 
 @pytest.fixture()
-def get_settings_file(get_test_name):
-    name = get_test_name
-    name = re.sub(
-        r"test_|(norules|rules)", lambda match: "simple" if match.group(1) else "", name
-    )
-    if "trex_one_port" in str(name) or "upf_dns" in str(name):
-        name = name.replace("_simple", "")
-    if "nfs_smb" in str(name):
-        name = "nfs_smb_simple"
-    if "http_https_smb" in str(name):
-        name = "http_https_smb_simple"
-    return str(Path(__file__).parent / "tests" / str(name) / "test_settings.json")
+def get_settings_file(request):
+    return str(request.node.path.parent / "test_settings.json")
 
 
 def get_capture_modes_in_run(param_file):

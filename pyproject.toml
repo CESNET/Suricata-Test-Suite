@@ -24,3 +24,5 @@ dependencies = [
 [tool.ruff]
 target-version = "py311"
 
+[tool.ruff.lint.per-file-ignores]
+"assets/trex/traffic_profiles/**/native.py" = ["F403", "F405"]
