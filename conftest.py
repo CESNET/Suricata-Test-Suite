@@ -140,6 +140,7 @@ def pytest_addoption(parser):
     parser.addoption(
         "--min-search-multiplier",
         default=0.0,
+        type=float,
         action="store",
         help=(
             "Minimum multiplier to find value from."
@@ -149,6 +150,7 @@ def pytest_addoption(parser):
     parser.addoption(
         "--max-search-multiplier",
         default=10.0,
+        type=float,
         action="store",
         help=(
             "Maximum multiplier to find value up to."
@@ -157,6 +159,7 @@ def pytest_addoption(parser):
 
     parser.addoption(
         "--drop-rate",
+        type=float,
         default=1.0,
         action="store",
         help=(
@@ -174,6 +177,7 @@ def pytest_addoption(parser):
 
     parser.addoption(
         "--max-cycles",
+        type=int,
         default=20,
         action="store",
         help=(
@@ -183,6 +187,7 @@ def pytest_addoption(parser):
 
     parser.addoption(
         "--repetitions",
+        type=int,
         default=2,
         action="store",
         help=(

@@ -69,7 +69,7 @@ def binary_search(
         print(f"\n[PROGRESS] ------ Cycle: {i}/{max_cycles} ------- [PROGRESS]")
 
         mid = (mini + maxi) / 2
-        check = test_function(drop_rate, mid, repetitions, function)
+        check = _test_function(drop_rate, mid, repetitions, function)
 
         # check if we can go faster
         if (check == 1):
@@ -96,7 +96,7 @@ def binary_search(
     return max_multiplier
 
 
-def test_function(target: float, multiplier: float, repetitions: int, function):
+def _test_function(target: float, multiplier: float, repetitions: int, function):
     """
     Function that determines if we have found our determined drop rate.
     Inputs:
@@ -112,9 +112,10 @@ def test_function(target: float, multiplier: float, repetitions: int, function):
     for i in range(1, repetitions + 1):
         print(f"\n[PROGRESS] Repetition number: {i}/{repetitions} of multiplier {multiplier}.")
         function(multiplier)
-        drop_rate_addition = get_drop_rate()
-        if(drop_rate_addition == -1.0):
-            pytest.fail(f"Error occured while getting drop rate: {drop_rate_addition}")
+        try:
+            drop_rate_addition = get_drop_rate()
+        except DropRateError as e:
+            pytest.fail(f"Error occurred while getting drop rate: {e}")
         drop_rate_arr.append(drop_rate_addition)
         print(f"[INFO] Drop rate: {drop_rate_arr[-1]:.4f}% for repetition {i}.")
 
@@ -123,4 +124,4 @@ def test_function(target: float, multiplier: float, repetitions: int, function):
 
     if drop_rate_avg > target:
         return -1
-    return 1 
+    return 1

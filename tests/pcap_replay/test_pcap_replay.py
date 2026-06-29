@@ -107,7 +107,10 @@ def test_pcap_replay(
             tester.test_run(multiplier)
 
 class Test_run:
-    def __init__(self, traffic_generator, suri_daemon, pcap_filename, test_info, params, request):
+    __test__ = False
+    def __init__(
+        self, traffic_generator, suri_daemon, pcap_filename, test_info, params, request
+    ):
         self.traffic_generator = traffic_generator
         self.suri_daemon = suri_daemon
         self.pcap_filename = pcap_filename
@@ -142,13 +145,13 @@ class Test_run:
             pytest.fail("Suricata was down.")
         
         run_info = RunInfo(multiplier)
-        run_info.trex_server_stats = traffic_generator.get_stats()
+        run_info.trex_server_stats = self.traffic_generator.get_stats()
         run_info.trex_pretty_stats["opackets"] = run_info.trex_server_stats["total"][
             "opackets"
         ]
         run_info.trex_pretty_stats["obytes"] = run_info.trex_server_stats["total"][
             "obytes"
         ]
-        run_info.suricata_start_delay = suri_daemon.last_start_delay
+        run_info.suricata_start_delay = self.suri_daemon.last_start_delay
 
         save_stats(self.params, self.request, self.test_info, run_info)

@@ -389,14 +389,14 @@ def make_graph(
     plt.savefig(path_to_graph)
 
 def get_drop_rate():
-    '''
+    """
     Gets stats from the latest result in the results/artefacts directory and calculates drop rate.
     Input:
         None
     Output:
         Drop rate in % <0, 100>. [FLOAT]
-       -1 -> Error may have occured.
-    '''
+       -1 -> Error may have occurred.
+    """
     path = Path(__file__).resolve().parent.parent / "results" / "artefacts"
     if path.exists() and path.is_dir():
 
@@ -407,15 +407,13 @@ def get_drop_rate():
 
         subfolders = [d for d in path.iterdir() if d.is_dir()]
         if not subfolders:
-            print(f"[ERROR] No test subfolders found in {path} .")
-            return -1.0
+            raise DropRateError(f"No folders found in the artefacts directory: {path}")
 
         path = max(subfolders, key=lambda d: d.stat().st_mtime)
 
         path = path / "aggregated.json"
         if not path.exists():
-            print(f"[ERROR] file not found: {path} .")
-            return -1.0
+            raise DropRateError(f"No test subfolders found in {path}.")
 
         results = None
         try:
@@ -432,14 +430,13 @@ def get_drop_rate():
                         continue
 
             if not results:
-                print(f"[ERROR] No 'test_results' event found in {path} .")
-                return -1.0
+                raise DropRateError(f"No 'test_results' event found in: {path}")
 
             suricata_rx = results.get("suricata_rx_packets", 0)
             trex_tx = results.get("trex_tx_packets", 0)
 
             if trex_tx == 0:
-                print("[WARNING] Trex send 0 packets.")
+                print("[WARNING] TRex sent 0 packets.")
                 return 0.0
 
             drop_rate = (1.0 - (suricata_rx / trex_tx)) * 100.0
@@ -448,10 +445,7 @@ def get_drop_rate():
                 return 0.0
             return float(drop_rate)
 
+        except DropRateError:
+            raise
         except Exception as e:
-            print(f"[ERROR] Failed to calculate drop rate: {e} .")
-            return -1.0
-
-    else:
-        print("[ERROR] Base path is incorrect or is missing.")
-        return -1.0
+            raise DropRateError(f"Failed to calculate drop rate: {e} .")
