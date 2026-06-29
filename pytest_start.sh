@@ -6,18 +6,35 @@ usage(){
   set +x
   echo "Bash script to start pytest"
   echo "Options:"
-  echo "-s | --server [SERVER] to specify the server, where Suricata will be running"
-  echo '-d | --defined-tests [TESTS] to specify tests, which have to be included, for all available tests run [-d|--defined-tests] " ",
+  echo "-s    | --server [SERVER] to specify the server, where Suricata will be running"
+  echo '-d    | --defined-tests [TESTS] to specify tests, which have to be included, for all available tests run [-d|--defined-tests] " ",
   for specific tests: [-d|--defined-tests] "nfs_smb_simple https_simple" or use multiple parameter specification, for specific test from test file
   use [-d|--defined-tests] https_simple/test_https_simple.py::test_https_norules, by default it runs http_simple tests'
-  echo "-t | --defined-time [TIME] to specify traffic duration in tests (seconds)"
-  echo "-tg | --trex-server-hostname [TRAFFIC GENERATOR] to specify traffic generator server for testing"
-  echo "-p1 | --trex-server-port-1 [TRAFFIC GENERATOR PORT] to specify traffic generator port"
-  echo "-p2 | --trex-server-port-2 [TRAFFIC GENERATOR PORT] to specify traffic generator port"
-  echo "-p | --pcie [PCIE] to specify, on which pcie will be Suricata tested, use multiple parameter specification or [-p|--pcie] "0000:3b:00.0 0000:3b:00.1""
-  echo "-ht | --heatup [TIME] to specify the duration for which to wait before measuring statistics"
-  echo "-f | --filter [rules/norules] starts Suricata with/without rules"
+  echo "-t    | --defined-time [TIME] to specify traffic duration in tests (seconds)"
+  echo "-tg   | --trex-server-hostname [TRAFFIC GENERATOR] to specify traffic generator server for testing"
+  echo "-p1   | --trex-server-port-1 [TRAFFIC GENERATOR PORT] to specify traffic generator port"
+  echo "-p2   | --trex-server-port-2 [TRAFFIC GENERATOR PORT] to specify traffic generator port"
+  echo "-p    | --pcie [PCIE] to specify, on which pcie will be Suricata tested, use multiple parameter specification or [-p|--pcie] "0000:3b:00.0 0000:3b:00.1""
+  echo "-ht   | --heatup [TIME] to specify the duration for which to wait before measuring statistics"
+  echo "-f    | --filter [rules/norules] starts Suricata with/without rules"
+  echo "-bs   | --binary-search to enable automatic throughput search"
+  echo "-bsh  | --binary-search-help to see help page for binary-search"
   exit 0
+}
+
+binary_search_usage(){
+  set +x
+  echo "Bash script to start pytest"
+  echo "Binary search mode"
+  echo "Options:"
+  echo "-bsh  | --binary-search-help to see help page for binary-search"
+  echo "-bs   | --binary-search to enable automatic throughput search"
+  echo "-mm   | --min-multiplier [FLOAT] Lowest bound of the search range. Default is 0.0"
+  echo "-xm   | --max-multiplier [FLOAT] Highest bound of the search range. Default is 10.0"
+  echo "-dr   | --drop-rate [FLOAT] Target drop rate in %. Default is 1%"
+  echo "-dt   | --delta [FLOAT] Minimum delta in multipliers between cycles before ending the cycle. Default is 0.05"
+  echo "-mc   | --max-cycles [INT] Maximum number of binary search iterations. Default is 20"
+  echo "-rp   | --repetitions [INT] How many times to repeat the test at each multiplier. Default is 2"
 }
 
 PYTHON="python3.11"
@@ -41,6 +58,14 @@ while [ "$#" -gt 0 ]; do
                         *) filter="$2";;
 		esac; shift 2 ;;
     -h | --help) usage ; shift ;;
+    -bsh | --binary-search-help) binary_search_usage ; exit 1 ; shift ;;
+    -bs | --binary_search) binary_search_enabled=true; shift ;;
+    -mm | --min-multiplier) min_multiplier=$2; shift 2 ;;
+    -xm | --max-multiplier) max_multiplier=$2; shift 2 ;;
+    -dr | --drop-rate) drop_rate=$2; shift 2 ;;
+    -dt | --delta) delta=$2; shift 2 ;;
+    -mc | --max-cycles) max_cycles=$2; shift 2 ;;
+    -rp | --repetitions) repetitions=$2; shift 2 ;;
     --) shift; extra_args="$@"; break ;;
     *) >&2 echo unsupported option: $1
       usage
@@ -130,6 +155,25 @@ if [ -z "$pcies" ]; then
     fi
 fi
 
+: ${min_multiplier:=0}
+: ${max_multiplier:=10}
+: ${drop_rate:=1}
+: ${delta:=0.05}
+: ${max_cycles:=20}
+: ${repetitions:=2}
+
+if [ "$binary_search_enabled" = true ]; then
+    bs_arg="--binary-search \
+--min-search-multiplier=$min_multiplier \
+--max-search-multiplier=$max_multiplier \
+--drop-rate=$drop_rate \
+--delta=$delta \
+--max-cycles=$max_cycles \
+--repetitions=$repetitions"
+else
+    bs_arg=""
+fi
+
 if [ -z "$VIRTUAL_ENV" ]; then
     if [ -d ".venv" ]; then
         source ".venv/bin/activate"
@@ -176,5 +220,6 @@ do
     --traffic-duration="$defined_time" \
     --heatup-duration="$heatup_duration" \
     -k "$filter" \
+    $bs_arg \
     $defined_tests $extra_args
 done

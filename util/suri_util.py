@@ -379,3 +379,73 @@ def make_graph(
     plt.ylabel("Suricata packets dropped in %")
     plt.title("Suricata performance test")
     plt.savefig(path_to_graph)
+
+
+def get_drop_rate():
+    """
+    Gets stats from the latest result in the results/artefacts directory and calculates drop rate.
+    Input:
+        None
+    Output:
+        Drop rate in % <0, 100>. [FLOAT]
+       -1 -> Error may have occured.
+    """
+    path = Path(__file__).resolve().parent.parent / "results" / "artefacts"
+    if path.exists() and path.is_dir():
+        folders = [d for d in path.iterdir() if d.is_dir()]
+        if not folders:
+            print("[ERROR] No folders found in the artefacts directory.")
+            return -1.0
+
+        path = max(folders, key=lambda d: d.stat().st_mtime)
+
+        subfolders = [d for d in path.iterdir() if d.is_dir()]
+        if not subfolders:
+            print(f"[ERROR] No test subfolders found in {path} .")
+            return -1.0
+
+        path = max(subfolders, key=lambda d: d.stat().st_mtime)
+
+        path = path / "aggregated.json"
+        if not path.exists():
+            print(f"[ERROR] file not found: {path} .")
+            return -1.0
+
+        results = None
+        try:
+            with open(path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        if data.get("event") == "test_results":
+                            results = data
+                    except json.JSONDecodeError:
+                        continue
+
+            if not results:
+                print(f"[ERROR] No 'test_results' event found in {path} .")
+                return -1.0
+
+            suricata_rx = results.get("suricata_rx_packets", 0)
+            trex_tx = results.get("trex_tx_packets", 0)
+
+            if trex_tx == 0:
+                print("[WARNING] Trex send 0 packets.")
+                return 0.0
+
+            drop_rate = (1.0 - (suricata_rx / trex_tx)) * 100.0
+
+            if drop_rate < 0:
+                return 0.0
+            return float(drop_rate)
+
+        except Exception as e:
+            print(f"[ERROR] Failed to calculate drop rate: {e} .")
+            return -1.0
+
+    else:
+        print("[ERROR] Base path is incorrect or is missing.")
+        return -1.0

@@ -19,6 +19,7 @@ from util.suricata_manager import Suricata_manager, SuriDown
 from util.suri_util import save_stats, TestInfo, RunInfo
 from assets.trex.traffic_profiles import https_trex_profile
 from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
+from util.search_util import binary_search
 
 TARGET_VLAN = 15  # claret
 TARGET_MAC = "08:C0:EB:88:C5:38"
@@ -44,6 +45,13 @@ def test_https_simple(
     get_traffic_duration: int,
     get_heatup_duration: int,
     rules_config: dict,
+    b_search: bool,
+    min_search_multiplier: float,
+    max_search_multiplier: float,
+    drop_rate: float,
+    delta: float,
+    max_cycles: int,
+    repetitions: int,
 ):
 
     trex_manager: trex.TRexManager = trex.TRexManager(
@@ -89,42 +97,74 @@ def test_https_simple(
         get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name
     )
 
-    for idx, multiplier in enumerate(trex_multipliers, 1):
-        run_info = RunInfo(multiplier=multiplier)
+    tester = Test_run(trex_server, trex_client, suri_daemon, test_info, params, request)
 
-        print(
-            f"\n[Progress] multiplier {idx}/{len(trex_multipliers)} | param_file={request.config.getoption('--param-file')} | params={params}"
+    if b_search:
+        max_multiplier = binary_search(
+            tester.test_run,
+            min_search_multiplier,
+            max_search_multiplier,
+            drop_rate,
+            delta,
+            max_cycles,
+            repetitions,
         )
-        print(f"sending packets at {run_info.multiplier} * default cps of .pcap")
+        print(
+            f"\n[FINISH] Maximum multiplier found is: {max_multiplier:.4f}. | param_file={request.config.getoption('--param-file')} | params={params}\n\n"
+        )
 
-        trex_server.reset()
-        trex_client.reset()
+    else:
+        for idx, multiplier in enumerate(trex_multipliers, 1):
+            run_info = RunInfo(multiplier=multiplier)
+            print(
+                f"\n[Progress] multiplier {idx}/{len(trex_multipliers)} | param_file={request.config.getoption('--param-file')} | params={params}"
+            )
+            print(f"sending packets at {run_info.multiplier} * default cps of .pcap")
+            tester.test_run(run_info.multiplier)
+
+
+class Test_run:
+    def __init__(self, server, client, suri_daemon, test_info, params, request):
+        self.trex_server = server
+        self.trex_client = client
+        self.suri_daemon = suri_daemon
+        self.test_info = test_info
+        self.params = params
+        self.request = request
+
+    def test_run(self, multiplier: float, duration: int = None):
+        if duration is None:
+            duration = self.test_info.traffic_duration
+
+        self.trex_server.reset()
+        self.trex_client.reset()
 
         trex_profile: trex.TRexProfilePcap = https_trex_profile.create_profile(
-            run_info.multiplier
+            multiplier
         )
 
-        trex_server.load_profile(trex_profile)
-        trex_client.load_profile(trex_profile)
+        self.trex_server.load_profile(trex_profile)
+        self.trex_client.load_profile(trex_profile)
 
         try:
-            suri_daemon.start()
+            self.suri_daemon.start()
         except SuriDown:
             pytest.fail("Suricata is down.")
 
-        trex_server.start()
-        trex_client.start(duration=test_info.traffic_duration)
+        self.trex_server.start()
+        self.trex_client.start(duration=duration)
 
-        trex_client.wait_on_traffic()
-        trex_server.stop()
+        self.trex_client.wait_on_traffic()
+        self.trex_server.stop()
 
         try:
-            suri_daemon.stop()
+            self.suri_daemon.stop()
         except SuriDown:
             pytest.fail("Suricata was down.")
 
-        run_info.trex_client_stats = trex_client.get_stats()
-        run_info.trex_server_stats = trex_server.get_stats()
-        run_info.suricata_start_delay = suri_daemon.last_start_delay
+        run_info = RunInfo(multiplier=multiplier)
+        run_info.trex_client_stats = self.trex_client.get_stats()
+        run_info.trex_server_stats = self.trex_server.get_stats()
+        run_info.suricata_start_delay = self.suri_daemon.last_start_delay
 
-        save_stats(params, request, test_info, run_info)
+        save_stats(self.params, self.request, self.test_info, run_info)
