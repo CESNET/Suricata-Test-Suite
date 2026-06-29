@@ -64,9 +64,9 @@ while [ "$#" -gt 0 ]; do
                         *) filter="$2";;
 		esac; shift 2 ;;
 	-pc | --pcap) pcap_replay="$2"; shift 2 ;;
-    -h | --help) usage ; shift ;;
-    -bsh | --binary-search-help) binary_search_usage ; shift ;;
-    -bs | --binary_search) binary_search_enabled=true; shift ;;
+    -h | --help) usage ;;
+    -bsh | --binary-search-help) binary_search_usage ;;
+    -bs | --binary-search) binary_search_enabled=true; shift ;;
     -mm | --min-multiplier) min_multiplier=$2; shift 2 ;;
     -xm | --max-multiplier) max_multiplier=$2; shift 2 ;;
     -dr | --drop-rate) drop_rate=$2; shift 2 ;;
@@ -251,6 +251,5 @@ do
     --traffic-duration="$defined_time" \
     --heatup-duration="$heatup_duration" \
     -k "$filter" \
-    $bs_arg \
     $defined_tests "${extra_args[@]}"
 done

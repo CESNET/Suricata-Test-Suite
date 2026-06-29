@@ -225,6 +225,37 @@ packets at 1x multiplier (so ~2 million pps) and this doesn't change with packet
 
 ---
 
+### Binary search
+
+This is a mode where we are testing maximum Suricata throughput and trying to converge on a defined packet drop rate. This function returns either minimum multiplier if not found or returns the highest found multiplier that is under or equal the specified allowed drop rate.
+- Binary search mode uses these parameters:
+  - `-bs` /  `--binary-search`
+    - Using this flag enables binary search mode.
+  - `-bsh` / `--binary-search-help`
+    - Shows a quick binary search parameter options.
+  - `-mm {FLOAT}` / `--min-multiplier {FLOAT}`
+    - Using this flag you can specify the bottom range of binary search.
+    - Input is in range of: `<0, +inf>`, default is 0.
+  - `-xm {FLOAT}` / `--max-multiplier {FLOAT}`
+    - Using this flag you can specify the top range of binary search.
+    - Input is in range of: `<0, +inf>`, default is 10.
+  - `-dr {FLOAT}%` / `--drop-rate {FLOAT}`
+    - Using this flag you can specify the target drop rate to converge towards to.
+    - Input is in range of %: `<0, 100>`, default is 1%.
+  - `-dt {FLOAT}` / `--delta {FLOAT}`
+    - Using this flag allows you to specify primary exit condition for the binary search.
+    - Exit condition is calculated as `(xm - mm) < delta`
+    - Default value is 0.05.
+  - `-mc {INT}` / `--max-cycles {INT}`
+    - Using this flag allows you to specify secondary exit condition for binary search.
+    - Limits the number of maximum cycles binary search will execute.
+    - Input is in range of: `<1, +inf>`, default is 20.
+  - `-rp {INT}` / `--repetitions {INT}`
+    - Using this flag allows you to specify number of times that Suricata will be launched with the current multiplier. This is to reduce fluctuations that might appear.
+    - Input is in range of: `<1, +inf>`, default is 2.
+
+---
+
 ## 5. Parameter file (param.py)
 
 The parameter file defines which Suricata configuration values to test. All combinations of parameter values are

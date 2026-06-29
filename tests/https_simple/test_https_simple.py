@@ -27,7 +27,7 @@ from util.search_util import binary_search
     {"name": "rules", "path": "/var/lib/suricata/rules/suricata.rules"}
 ], ids=["norules", "rules"])
 
-def test_https_simple (
+def test_https_simple(
     request: pytest.FixtureRequest,
     trex_generators: dict,
     result_path: str,
@@ -35,8 +35,8 @@ def test_https_simple (
     utilized_programs_info: dict,
     params: dict,
     suri_conf: Suri_conf,
-    get_settings_file : str,
-    get_traffic_duration : int,
+    get_settings_file: str,
+    get_traffic_duration: int,
     get_heatup_duration: int,
     rules_config: dict,
     get_target_mac: str,
@@ -93,10 +93,11 @@ def test_https_simple (
     else:
         for idx, multiplier in enumerate(trex_multipliers, 1):
             print(f"\n[Progress] multiplier {idx}/{len(trex_multipliers)} | param_file={request.config.getoption('--param-file')} | params={params}")
-            print(f"sending packets at {run_info.multiplier} * default cps of .pcap")
+            print(f"sending packets at {multiplier} * default cps of .pcap")
             tester.test_run(multiplier)
 
 class Test_run:
+    __test__ = False
     def __init__(self, client, suri_daemon, test_info, params, request):
         self.trex_client = client
         self.suri_daemon = suri_daemon
@@ -108,15 +109,15 @@ class Test_run:
         if duration is None:
             duration = self.test_info.traffic_duration
 
-        self.trex_client.set_props(run_info.multiplier, test_info.traffic_duration)
-        trex_client.prepare()
+        self.trex_client.set_props(multiplier, duration)
+        self.trex_client.prepare()
 
         try:
             self.suri_daemon.start()
         except SuriDown:
             pytest.fail("Suricata is down.")
 
-        trex_client.run()
+        self.trex_client.run()
 
         try:
             self.suri_daemon.stop()

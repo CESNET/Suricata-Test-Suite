@@ -27,7 +27,7 @@ from util.search_util import binary_search
     {"name": "rules", "path": "/var/lib/suricata/rules/suricata.rules"}
 ], ids=["norules", "rules"])
 
-def test_http_simple (
+def test_http_simple(
     request: pytest.FixtureRequest,
     trex_generators: dict,
     result_path: str,
@@ -93,11 +93,12 @@ def test_http_simple (
     else:
         for idx, multiplier in enumerate(trex_multipliers, 1):
             print(f"\n[Progress] multiplier {idx}/{len(trex_multipliers)} | param_file={request.config.getoption('--param-file')} | params={params}")
-            print(f"sending packets at {run_info.multiplier} * default cps of .pcap")
-            tester.test_run(run_info.multiplier)
+            print(f"sending packets at {multiplier} * default cps of .pcap")
+            tester.test_run(multiplier)
 
 
 class Test_run:
+    __test__ = False
     def __init__(self, client, suri_daemon, test_info, params, request):
         self.trex_client = client
         self.suri_daemon = suri_daemon
