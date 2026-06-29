@@ -2,7 +2,16 @@ import pytest
 
 from util.suri_util import get_drop_rate
 
-def binary_search(function, mini: float, maxi: float, drop_rate: float, delta: float, max_cycles: int, repetitions: int) -> float:
+
+def binary_search(
+    function,
+    mini: float,
+    maxi: float,
+    drop_rate: float,
+    delta: float,
+    max_cycles: int,
+    repetitions: int,
+) -> float:
     """
     Core function of binary_search. Handles binary_search algorithm.
     Inputs:
@@ -18,9 +27,9 @@ def binary_search(function, mini: float, maxi: float, drop_rate: float, delta: f
         found multiplier
     """
 
-    if (max_cycles <= 0):
+    if max_cycles <= 0:
         max_cycles = 1
-   
+
     if mini < 0:
         mini = 0
 
@@ -34,7 +43,7 @@ def binary_search(function, mini: float, maxi: float, drop_rate: float, delta: f
 
     for i in range(1, max_cycles + 1):
         # check if we have converged
-        if ((maxi - mini) < delta):
+        if (maxi - mini) < delta:
             break
 
         print(f"\n[PROGRESS] ------ Cycle: {i}/{max_cycles} ------- [PROGRESS]")
@@ -43,12 +52,12 @@ def binary_search(function, mini: float, maxi: float, drop_rate: float, delta: f
         check = test_function(drop_rate, mid, repetitions, function)
 
         # check if we can go faster
-        if (check == 1):
+        if check == 1:
             mini = mid
             max_multiplier = mid
 
         # check if we must go slower
-        elif (check == -1):
+        elif check == -1:
             maxi = mid
 
         else:
@@ -69,27 +78,32 @@ def test_function(target: float, multiplier: float, repetitions: int, function):
         1 -> increase multiplier
        -1 -> decrease multiplier
     """
-    if (repetitions <= 0):
+    if repetitions <= 0:
         repetitions = 1
 
-    if (target < 0):
+    if target < 0:
         target = 0
 
-    elif (target > 100):
+    elif target > 100:
         target = 100
 
     drop_rate_arr = []
     for i in range(1, repetitions + 1):
-        print(f"\n[PROGRESS] Repetition number: {i}/{repetitions} of multiplier {multiplier}.")
+        print(
+            f"\n[PROGRESS] Repetition number: {i}/{repetitions} of multiplier {multiplier}."
+        )
         function(multiplier)
         drop_rate_addition = get_drop_rate()
-        if(drop_rate_addition == -1.0):
+        if drop_rate_addition == -1.0:
             pytest.fail(f"Error occured while getting drop rate: {drop_rate_addition}")
         drop_rate_arr.append(drop_rate_addition)
         print(f"[INFO] Drop rate: {drop_rate_arr[-1]:.4f}% for repetition {i}.")
 
     drop_rate_avg = sum(drop_rate_arr) / len(drop_rate_arr)
-    print(f"\n[INFO] Average drop rate for multiplier {multiplier}: {drop_rate_avg:.4f}%.")
+    print(
+        f"\n[INFO] Average drop rate for multiplier {multiplier}: {drop_rate_avg:.4f}%."
+    )
 
-    if (drop_rate_avg > target): return -1
+    if drop_rate_avg > target:
+        return -1
     return 1

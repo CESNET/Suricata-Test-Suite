@@ -380,18 +380,18 @@ def make_graph(
     plt.title("Suricata performance test")
     plt.savefig(path_to_graph)
 
+
 def get_drop_rate():
-    '''
+    """
     Gets stats from the latest result in the results/artefacts directory and calculates drop rate.
     Input:
         None
     Output:
         Drop rate in % <0, 100>. [FLOAT]
        -1 -> Error may have occured.
-    '''
+    """
     path = Path(__file__).resolve().parent.parent / "results" / "artefacts"
     if path.exists() and path.is_dir():
-
         folders = [d for d in path.iterdir() if d.is_dir()]
         if not folders:
             print(f"[ERROR] No folders found in the artefacts directory.")
