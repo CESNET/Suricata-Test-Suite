@@ -41,6 +41,13 @@ def test_web_50_sites(
     rules_config: dict,
     get_target_mac: str,
     get_target_vlan: int,
+    b_search: bool,
+    min_search_multiplier: float,
+    max_search_multiplier: float,
+    drop_rate: float,
+    delta: float,
+    max_cycles: int,
+    repetitions: int
 ):
 
     trex_manager: trex.TRexManager = trex.TRexManager(
@@ -87,32 +94,8 @@ def test_web_50_sites(
             print(
                 f"\n[Progress] multiplier {idx}/{len(trex_multipliers)} | param_file={request.config.getoption('--param-file')} | params={params}"
             )
-            print(f"sending packets at {run_info.multiplier} * default cps of .pcap")
+            print(f"sending packets at {multiplier} * default cps of .pcap")
             tester.test_run(multiplier)
-    def test_run(self, multiplier: float, duration: int = None):
-        if duration is None:
-            duration = self.test_info.traffic_duration
-
-        self.trex_client.set_props(multiplier, duration)
-        self.trex_client.prepare()
-
-        try:
-            self.suri_daemon.start()
-        except SuriDown:
-            pytest.fail("Suricata is down.")
-
-        self.trex_client.run()
-
-        try:
-            self.suri_daemon.stop()
-        except SuriDown:
-            pytest.fail("Suricata was down.")
-
-        run_info = RunInfo(multiplier=multiplier)
-        self.trex_client.update_runinfo(run_info)
-        run_info.suricata_start_delay = self.suri_daemon.last_start_delay
-
-        save_stats(self.params, self.request, self.test_info, run_info)
 
 class Test_run:
     __test__ = False

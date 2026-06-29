@@ -90,10 +90,11 @@ def test_nfs_smb (
     else:
         for idx, multiplier in enumerate(trex_multipliers, 1):
             print(f"\n[Progress] multiplier {idx}/{len(trex_multipliers)} | param_file={request.config.getoption('--param-file')} | params={params}")
-            print(f"sending packets at {run_info.multiplier} * default cps of .pcap")
+            print(f"sending packets at {multiplier} * default cps of .pcap")
             tester.test_run(multiplier)
 
 class Test_run:
+    __test__ = False
     def __init__(self, client, suri_daemon, test_info, params, request):
         self.trex_client = client
         self.suri_daemon = suri_daemon
@@ -106,7 +107,7 @@ class Test_run:
             duration = self.test_info.traffic_duration
 
         self.trex_client.set_props(multiplier, duration)
-        trex_client_prepare()
+        self.trex_client.prepare()
 
         try:
             self.suri_daemon.start()

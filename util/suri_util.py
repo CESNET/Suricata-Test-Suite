@@ -370,7 +370,7 @@ def make_graph(
     plt.savefig(path_to_graph)
 
 def get_drop_rate():
-    '''
+    """
     Gets stats from the latest result in the results/artefacts directory and calculates drop rate.
     Input:
         None
