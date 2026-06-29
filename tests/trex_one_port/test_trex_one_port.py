@@ -7,11 +7,8 @@ Suricata testing module.
 """
 
 import pytest
-import os
 import signal
-import time
-from functools import partial
-from pathlib import Path
+
 from typing import List
 from lbr_testsuite import trex
 from add_vlan import edit_vlan
@@ -147,7 +144,6 @@ class Test_run:
             self.suri_daemon.start()
         except SuriDown:
             pytest.fail("Suricata is down.")
-        time.sleep(5)
 
         self.traffic_generator.get_handler().push_remote(
             pcap_filename=f"/tmp/pcaps/{return_filename(self.pcap_filename)}",

@@ -11,17 +11,13 @@ Usage:
 """
 
 import pytest
-import os
 import signal
-import time
 
-from pathlib import Path
 from typing import List
 from lbr_testsuite import trex
 from util.suricata_manager import Suricata_manager, SuriDown
 from util.suri_util import save_stats, TestInfo, RunInfo
 from assets.trex.traffic_profiles import profile_ttp_http_only
-from functools import partial
 from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
 from util.search_util import binary_search
 
@@ -155,7 +151,6 @@ class Test_run:
             self.suri_daemon.start()
         except SuriDown:
             pytest.fail("Suricata is down.")
-        time.sleep(5)
 
         self.trex_server.start()
         self.trex_client.start(duration=duration)
