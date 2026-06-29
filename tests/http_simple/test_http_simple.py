@@ -28,7 +28,7 @@ from util.test_runner import AstfTestRun
     {"name": "rules", "path": "/var/lib/suricata/rules/suricata.rules"}
 ], ids=["norules", "rules"])
 
-def test_http_simple (
+def test_http_simple(
     request: pytest.FixtureRequest,
     trex_generators: dict,
     result_path: str,

@@ -30,7 +30,7 @@ from util.test_runner import AstfTestRun
     {"name": "rules", "path": "/var/lib/suricata/rules/suricata.rules"}
 ], ids=["norules", "rules"])
 
-def test_http_https_smb (
+def test_http_https_smb(
     request: pytest.FixtureRequest,
     trex_generators: dict,
     result_path: str,
@@ -38,8 +38,8 @@ def test_http_https_smb (
     utilized_programs_info: dict,
     params: dict,
     suri_conf: Suri_conf,
-    get_settings_file : str,
-    get_traffic_duration : int,
+    get_settings_file: str,
+    get_traffic_duration: int,
     get_heatup_duration: int,
     rules_config: dict,
     get_target_mac: str,
