@@ -1,14 +1,10 @@
 import copy
 import os
-import subprocess
 import warnings
-from enum import Enum
 from pathlib import Path
 from time import sleep, time
-from typing import Dict, Literal, Self, Sequence, Tuple
+from typing import Dict, Literal, Self
 
-from conftest import get_trex_executor, get_trex_internal, send_pcap_to_trex
-from lbr_testsuite.executable import executable
 from lbr_testsuite.trex import (
     TRexAdvancedStateful,
     TRexManager,
@@ -19,20 +15,15 @@ from lbr_trex_client.interactive.trex.stl.trex_stl_client import STLClient
 from lbr_trex_client.stf.trex_stf_lib.trex_client import CTRexClient
 from pytest import FixtureRequest
 
-# ASTFProfile needs to be imported exactly like this
-# otherwise it fails an isintance() check
+# these need to be imported exactly like this
+# otherwise they fail type introspection
 from trex.astf import trex_astf_profile
+from trex.common.trex_exceptions import TRexError
+
 from util.add_vlan import edit_vlan
 from util.config_builder import ConfigBuilder
 from util.suri_util import RunInfo
-
-PcapList = Sequence[Tuple[str, int | float]]
-
-
-class TrexMode(Enum):
-    STL = (0,)
-    ASTF = (1,)
-    STF = 2
+from util.trex_util import PcapList, TrexMode, mkdir_remote, send_to_remote
 
 
 class BaseTrexClientManager:
@@ -42,16 +33,18 @@ class BaseTrexClientManager:
     Subclasses are created as `MyProfile(BaseTrexClientManager, pcaps)`.
 
     `pcaps: PcapList` is a list of (str, int) tuples, where int is:
+        - cps in STF
         - cps in ASTF
         - the divisor for `self.BASE_IPG_USEC` in STL
-        - not used in STF by default (depends on profile implementation)
     """
 
     pcaps: PcapList
+    multiplier: float | None = None
+    duration: int | None = None
+    _stf_config_path: Path | None = None
 
     BASE_IPG_USEC = 12.0  # ~1 Gbps at 1500 bytes per packet
     PCAP_PATH_PREFIX = Path(__file__).parent / "pcaps"
-    REMOTE_PCAP_PATH_PREFIX = Path("/tmp/pcaps")
 
     def __new__(cls, *args, **kwargs) -> Self:
         if cls is BaseTrexClientManager:
@@ -74,18 +67,29 @@ class BaseTrexClientManager:
         self.pcaps = copy.deepcopy(self.profile_pcaps)
         self.mode = mode
         self.vlan_id = target_vlan
-        self.multiplier: float | None = None
-        self.duration: int | None = None
 
         if len(self.pcaps) < 1:
             raise ValueError("self.pcaps must contain at least one pcap")
+
+        trex_gen = request.config.getoption("--trex-generator")
+        trex_host = trex_gen[0].split(",")
+        trex_hostname = trex_host[0]
+        trex_pcie = trex_host[1]
 
         match self.mode:
             case TrexMode.STL:
                 # STL mode can only send one pcap at a time so it either
                 # needs to merge them together or replay them one by one
                 # currently it replays them one by one
+
+                # if STL mode gets used more in the future this should create a merged
+                # pcap that is at least 1M packets long, since there is a lot of overhead
+                # with small files
+
                 self.stl_generator: TRexStateless = manager.request_stateless(request)
+                self.trex_version = (
+                    self.stl_generator.get_handler().get_server_version()["version"]
+                )
 
                 self.stl_generator.set_dst_mac(target_mac)
                 if target_vlan != 0:
@@ -97,7 +101,8 @@ class BaseTrexClientManager:
                     if target_vlan != 0:
                         pcap_path = Path(edit_vlan(str(pcap_path), target_vlan))
                         self.pcaps[i] = (pcap_path.name, pcap[1])
-                    send_pcap_to_trex(str(pcap_path), request)
+                    pcap_remote_path = self.get_remote_data_path(pcap_path)
+                    send_to_remote(pcap_path, trex_hostname, pcap_remote_path)
 
             case TrexMode.ASTF:
                 self.client: TRexAdvancedStateful = manager.request_stateful(
@@ -106,6 +111,9 @@ class BaseTrexClientManager:
                 self.server: TRexAdvancedStateful = manager.request_stateful(
                     request, role="server"
                 )
+                self.trex_version = self.server.get_handler().get_server_version()[
+                    "version"
+                ]
 
                 self.client.set_dst_mac(self.server.get_src_mac())
                 self.server.set_dst_mac(self.client.get_src_mac())
@@ -115,37 +123,11 @@ class BaseTrexClientManager:
                     self.server.set_vlan(target_vlan)
 
             case TrexMode.STF:
-                trex_gen = request.config.getoption("--trex-generator")
-                trex_host = trex_gen[0].split(",")
-                trex_hostname = trex_host[0]
-                trex_pcie = trex_host[1]
-
                 self.stf_generator = CTRexClient(trex_hostname)
                 self.trex_version = self.stf_generator.get_trex_version()["Version"]
 
-                parent_dir_path = str(self.get_remote_data_path(Path("")))
-                parent_dir = executable.Tool(
-                    f"mkdir -p {parent_dir_path} && chmod 777 {parent_dir_path}",
-                    executor=get_trex_executor(request),
-                    sudo=True,
-                )
-                parent_dir.run()
-
-                username: str = request.config.getoption("--user")
-                remote: str = get_trex_internal(request)
-
-                profile_path = self.get_stf_profile()
-                profile_remote_path = str(self.get_remote_data_path(profile_path))
-                subprocess.run(
-                    [
-                        "rsync",
-                        "-z",
-                        "--checksum",
-                        "--update",
-                        str(profile_path),
-                        f"{username}@{remote}:{profile_remote_path}",
-                    ]
-                )
+                parent_dir_path = self.get_remote_data_path(Path(""))
+                mkdir_remote(parent_dir_path, trex_hostname)
 
                 os.makedirs("tmp", exist_ok=True)
                 config = ConfigBuilder(
@@ -161,35 +143,23 @@ class BaseTrexClientManager:
                     # similarly this syntax deletes it
                     config.delete_option("[0].port_info.vlan")
                 config = self.stf_config_hook(config)
-                config_path = config.build()
-                config_remote_path = str(self.get_remote_data_path(Path(config_path)))
+                config_path = Path(config.build())
+                config_remote_path = self.get_remote_data_path(config_path)
                 self.remote_stf_config = config_remote_path
-
-                subprocess.run(
-                    [
-                        "rsync",
-                        "-z",
-                        "--checksum",
-                        "--update",
-                        config_path,
-                        f"{username}@{remote}:{config_remote_path}",
-                    ]
-                )
+                send_to_remote(config_path, trex_hostname, config_remote_path)
 
                 print("Uploading pcaps. This might take a while.")
-                for pcap, _ in self.pcaps:
-                    pcap_path = self.PCAP_PATH_PREFIX / pcap
-                    pcap_remote_path = str(self.get_remote_data_path(pcap_path))
-                    subprocess.run(
-                        [
-                            "rsync",
-                            "-z",
-                            "--checksum",
-                            "--update",
-                            str(pcap_path),
-                            f"{username}@{remote}:{pcap_remote_path}",
-                        ]
-                    )
+                for i, pcap in enumerate(self.pcaps):
+                    pcap_path = self.PCAP_PATH_PREFIX / pcap[0]
+                    if target_vlan != 0:
+                        pcap_path = Path(edit_vlan(str(pcap_path), target_vlan))
+                        self.pcaps[i] = (pcap_path.name, pcap[1])
+                    pcap_remote_path = self.get_remote_data_path(pcap_path)
+                    send_to_remote(pcap_path, trex_hostname, pcap_remote_path)
+
+                profile_path = self.get_stf_profile()
+                profile_remote_path = self.get_remote_data_path(profile_path)
+                send_to_remote(profile_path, trex_hostname, profile_remote_path)
 
     def get_remote_data_path(self, local_path: Path) -> Path:
         """
@@ -197,7 +167,7 @@ class BaseTrexClientManager:
 
         A directory is created from the output of `get_remote_data_path(Path(""))`.
         """
-        return self.REMOTE_PCAP_PATH_PREFIX / local_path.name
+        return Path(f"/opt/trex/{self.trex_version}/pcaps") / local_path.name
 
     def get_astf_profile(self, multiplier: float) -> trex_astf_profile.ASTFProfile:
         """
@@ -244,10 +214,45 @@ class BaseTrexClientManager:
         Returns the *local* path to the stateful profile config.
         The remote path is handled by `get_remote_data_path`.
         """
-        raise NotImplementedError("no default implementation in BaseTrexClientManager")
-        # it probably is possible to construct a sane default from
-        # just `self.pcaps`, but this is intended to return a file path
-        # to an existing `.yaml` file
+        if self._stf_config_path is not None:
+            return self._stf_config_path
+
+        self._stf_config_path = Path("tmp/stf_trex_profile.yaml").absolute()
+        with open(self._stf_config_path, mode="w+") as f:
+            f.write("[]\n")
+        profile = ConfigBuilder(str(self._stf_config_path), str(self._stf_config_path))
+        profile.add_option("[0].duration", 9999)
+        profile.add_option(
+            "[0].generator",
+            {
+                "distribution": "seq",
+                "clients_start": "16.0.0.1",
+                "clients_end": "16.0.0.255",
+                "servers_start": "48.0.0.1",
+                "servers_end": "48.0.255.255",
+                "clients_per_gb": 200,
+                "min_clients": 100,
+                "dual_port_mask": "1.0.0.0",
+                "tcp_aging": 0,
+                "udp_aging": 0,
+            },
+        )
+
+        for i, pcap in enumerate(self.pcaps):
+            profile.add_option(
+                f"[0].cap_info.[{i}]",
+                {
+                    "name": f"pcaps/{pcap[0]}",
+                    "cps": pcap[1],
+                    "ipg": 100,
+                    "rtt": 100,
+                    "w": 1,
+                },
+            )
+
+        os.makedirs("tmp", exist_ok=True)
+        profile.build()
+        return self._stf_config_path
 
     def stf_config_hook(self, config: ConfigBuilder) -> ConfigBuilder:
         """
@@ -314,14 +319,23 @@ class BaseTrexClientManager:
                 pcap_index = 0
                 while elapsed < self.duration:
                     pcap = self.pcaps[pcap_index]
-                    client.push_remote(
-                        pcap_filename=str(self.get_remote_data_path(Path(pcap[0]))),
-                        ports=[0],
-                        ipg_usec=self.BASE_IPG_USEC / pcap[1],
-                        speedup=self.multiplier,
-                        count=1,
-                        duration=int(self.duration - elapsed),
-                    )
+                    try:
+                        client.push_remote(
+                            pcap_filename=str(self.get_remote_data_path(Path(pcap[0]))),
+                            ports=[0],
+                            ipg_usec=self.BASE_IPG_USEC / pcap[1],
+                            speedup=self.multiplier,
+                            count=1,
+                            duration=int(self.duration - elapsed),
+                        )
+                    except TRexError:
+                        # sometimes trex takes a while to stop the previous stream properly
+                        sleep(0.05)
+
+                        # intentionally not 100% of the sleep, because with very small
+                        # pcaps this could run for a very long time even with a short duration
+                        start += 0.03
+                        continue
                     elapsed = time() - start
                     pcap_index = (pcap_index + 1) % len(self.pcaps)
 
@@ -340,9 +354,9 @@ class BaseTrexClientManager:
 
                 self.stf_generator.start_trex(
                     f=str(self.get_remote_data_path(self.get_stf_profile()).absolute()),
-                    d=self.duration,
-                    m=self.multiplier,
-                    cfg=self.remote_stf_config,
+                    d=str(self.duration),
+                    m=str(self.multiplier),
+                    cfg=str(self.remote_stf_config),
                 )
 
         if blocking:

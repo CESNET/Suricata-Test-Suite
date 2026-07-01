@@ -20,6 +20,8 @@ usage(){
   echo "-ht | --heatup [TIME] to specify the duration for which to wait before measuring statistics"
   echo "-f | --filter [rules/norules] starts Suricata with/without rules"
   echo "-pc | --pcap [PATH] to specify the pcap file to send to Suricata. Also sets --defined-tests to *only* pcap_replay"
+  echo "-pm | --prefer-trex-mode [MODE] to suggest a mode for TRex. If unavailable tests use their defaults."
+  echo "-fm | --force-trex-mode [MODE] to force a TRex mode. If unavailable tests get skipped. Overrides -pm"
   exit 0
 }
 
@@ -46,6 +48,8 @@ while [ "$#" -gt 0 ]; do
                         *) filter="$2";;
 		esac; shift 2 ;;
 	-pc | --pcap) pcap_replay="$2"; shift 2 ;;
+    -pm | --prefer-trex-mode) trex_mode_flags+="--prefer-trex-mode $2 "; shift 2 ;;
+    -fm | --force-trex-mode) trex_mode_flags+="--force-trex-mode $2 "; shift 2 ;;
     -h | --help) usage ; shift ;;
     --) shift; read -a extra_args <<< "$@"; break ;;
     *) >&2 echo unsupported option: $1
@@ -203,6 +207,7 @@ do
     --trex-generator="$trex_server_hostname,$trex_server_port_2" \
     --remote-host="$suricata_server" --param-file="param.py" \
     --trex-force-use \
+    $trex_mode_flags \
     --traffic-duration="$defined_time" \
     --heatup-duration="$heatup_duration" \
     -k "$filter" \

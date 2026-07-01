@@ -11,11 +11,11 @@ import signal
 
 from typing import List
 from lbr_testsuite import trex
-from assets.trex.traffic_profiles.trex_client_manager import TrexMode
 from assets.trex.traffic_profiles.web_50_sites_trex_profile import Web50SitesProfile
 from util.suricata_manager import Suricata_manager, SuriDown
 from util.suri_util import save_stats, TestInfo, RunInfo
 from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
+from util.trex_util import TrexMode, get_trex_mode
 
 
 @pytest.mark.parametrize(
@@ -66,8 +66,9 @@ def test_web_50_sites(
         utilized_programs_info=utilized_programs_info,
     )
 
+    trex_mode = get_trex_mode(request, [TrexMode.STF])
     trex_client = Web50SitesProfile(
-        trex_manager, request, get_target_mac, get_target_vlan, mode=TrexMode.STF
+        trex_manager, request, get_target_mac, get_target_vlan, mode=trex_mode
     )
 
     test_variant_name = f"{suri_conf.test_name}_{rules_config['name']}"

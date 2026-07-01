@@ -127,6 +127,24 @@ def pytest_addoption(parser):
         action="store",
         help=("Generate traffic with this VLAN ID. 0 (default) for untagged."),
     )
+    parser.addoption(
+        "--prefer-trex-mode",
+        type=str,
+        default=None,
+        action="store",
+        help=(
+            "Run tests with the specified trex mode if available. If not, fallback to default."
+        ),
+    )
+    parser.addoption(
+        "--force-trex-mode",
+        type=str,
+        default=None,
+        action="store",
+        help=(
+            "Run tests with the specified trex mode if available. If not, skip test."
+        ),
+    )
 
 
 def get_suri_executor(request) -> remote_executor.Executor:
@@ -225,20 +243,6 @@ def return_filename(pcap_filename):
     match = re.search(r"[^\/]+\.pcap$", pcap_filename)
     assert match, "file is incorrectly specified"
     return match.group(0)
-
-
-def send_pcap_to_trex(pcap_filename, request):
-
-    pcaps_dir_trex = executable.Tool(
-        "mkdir -p /tmp/pcaps/ && chmod 777 /tmp/pcaps/",
-        executor=get_trex_executor(request),
-        sudo=True,
-    )
-    pcaps_dir_trex.run()
-
-    os.system(
-        f"rsync -z --checksum --update {pcap_filename} $(whoami)@{get_trex_internal(request)}.liberouter.org:/tmp/pcaps"
-    )
 
 
 @pytest.fixture(scope="function")
