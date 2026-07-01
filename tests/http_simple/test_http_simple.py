@@ -12,11 +12,8 @@ Usage:
 
 
 import pytest
-import os
 import signal
-import time
 
-from pathlib import Path
 from typing import List
 from lbr_testsuite import trex
 from util.suricata_manager import Suricata_manager, SuriDown

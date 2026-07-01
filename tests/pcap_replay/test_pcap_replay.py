@@ -7,11 +7,7 @@ Suricata testing module.
 """
 
 import pytest
-import os
 import signal
-import time
-from functools import partial
-from pathlib import Path
 from typing import List
 from lbr_testsuite import trex
 from util.add_vlan import edit_vlan

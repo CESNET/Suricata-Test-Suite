@@ -12,10 +12,8 @@ Usage:
 
 
 import pytest
-import os
 import signal
 
-from pathlib import Path
 from typing import List
 from lbr_testsuite import trex
 from util.suricata_manager import Suricata_manager, SuriDown
@@ -78,7 +76,7 @@ def test_nfs_smb (
     trex_multipliers: List[float] = get_trex_multi(get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name)
 
     if not trex_multipliers:
-        print(f"ERROR NO multiplier!")
+        print("ERROR NO multiplier!")
         return
 
     tester = Test_run(trex_client, suri_daemon, test_info, params, request)

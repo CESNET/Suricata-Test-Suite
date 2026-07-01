@@ -383,7 +383,7 @@ def get_drop_rate():
 
         folders = [d for d in path.iterdir() if d.is_dir()]
         if not folders:
-            print(f"[ERROR] No folders found in the artefacts directory.")
+            print("[ERROR] No folders found in the artefacts directory.")
             return -1.0
 
         path = max(folders, key=lambda d: d.stat().st_mtime)
@@ -422,7 +422,7 @@ def get_drop_rate():
             trex_tx = results.get("trex_tx_packets", 0)
 
             if trex_tx == 0:
-                print(f"[WARNING] Trex send 0 packets.")
+                print("[WARNING] Trex send 0 packets.")
                 return 0.0
 
             drop_rate = (1.0 - (suricata_rx / trex_tx)) * 100.0
@@ -436,5 +436,5 @@ def get_drop_rate():
             return -1.0
 
     else:
-        print(f"[ERROR] Base path is incorrect or is missing.")
+        print("[ERROR] Base path is incorrect or is missing.")
         return -1.0
