@@ -128,6 +128,68 @@ def pytest_addoption(parser):
         help=("Generate traffic with this VLAN ID. 0 (default) for untagged."),
     )
 
+    parser.addoption(
+        "--binary-search",
+        default=False,
+        action="store_true",
+        help=(
+            "Use binary search mode for finding optimal Suricata speed."
+        )
+    )
+
+    parser.addoption(
+        "--min-search-multiplier",
+        default=0.0,
+        type=float,
+        action="store",
+        help=(
+            "Minimum multiplier to find value from."
+        )
+    )
+
+    parser.addoption(
+        "--max-search-multiplier",
+        default=10.0,
+        type=float,
+        action="store",
+        help=(
+            "Maximum multiplier to find value up to."
+        )
+    )
+
+    parser.addoption(
+        "--drop-rate",
+        type=float,
+        default=1.0,
+        action="store",
+        help=(
+            "Target drop rate in percentage."
+        )
+    )
+
+    parser.addoption(
+        "--delta", type=float, default=0.05, action="store", help=("Minimum delta between cycles.")
+    )
+
+    parser.addoption(
+        "--max-cycles",
+        type=int,
+        default=20,
+        action="store",
+        help=(
+            "Maximum amount of steps for binary search."
+        )
+    )
+
+    parser.addoption(
+        "--repetitions",
+        type=int,
+        default=2,
+        action="store",
+        help=(
+            "Maximum amount of repetitions per multiplier."
+        )
+    )
 
 def get_suri_executor(request) -> remote_executor.Executor:
     host_name = get_host_internal(request)
@@ -220,6 +282,33 @@ def get_target_mac(request):
 def get_target_vlan(request):
     return request.config.getoption("--target-vlan")
 
+@pytest.fixture()
+def b_search(request):
+    return request.config.getoption("--binary-search")
+
+@pytest.fixture()
+def min_search_multiplier(request):
+    return float(request.config.getoption("--min-search-multiplier"))
+
+@pytest.fixture()
+def max_search_multiplier(request):
+    return float(request.config.getoption("--max-search-multiplier"))
+
+@pytest.fixture()
+def drop_rate(request):
+    return float(request.config.getoption("--drop-rate"))
+
+@pytest.fixture()
+def delta(request):
+    return float(request.config.getoption("--delta"))
+
+@pytest.fixture()
+def max_cycles(request):
+    return int(request.config.getoption("--max-cycles"))
+
+@pytest.fixture()
+def repetitions(request):
+    return int(request.config.getoption("--repetitions"))
 
 def return_filename(pcap_filename):
     match = re.search(r"[^\/]+\.pcap$", pcap_filename)

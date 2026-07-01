@@ -117,7 +117,7 @@ If you want to pass a flag to pytest directly, you can do so by adding it after 
 ### Environment variables
 
 Optionally you can create a `.env` file with default variables, so that you don't have to fill out the flags on every run of pytests.
-The file will look like this: 
+The file will look like this:
 
 ```bash
 # Mandatory flags
@@ -152,7 +152,7 @@ and that setting `DEFAULT_TESTS` will prevent you from doing so.
 
 # Quick run: run a single test function for 20s with rules
 ./pytest_start.sh -s dpdk-test2 -d http_simple -t 20 -tg trex -p 0000:05:00.0 /
-	-p1 0000:65:00.0 -p2 0000:65:00.0 -f rules
+        -p1 0000:65:00.0 -p2 0000:65:00.0 -f rules
 
 # Multiple PCIe addresses
 ./pytest_start.sh -s claret -d http_simple -t 60 -p 0000:3b:00.0 -p 0000:af:00.0
@@ -222,6 +222,37 @@ need to change the VLAN that the packets are tagged with, pytest will create a n
 the new VLAN hardcoded. Another notable property of the test (and STL TRex in general) is
 that packets are sent at a constant rate. This means that there are 0.5 microseconds between
 packets at 1x multiplier (so ~2 million pps) and this doesn't change with packet size.
+
+---
+
+### Binary search
+
+This is a mode where we are testing maximum Suricata throughput and trying to converge on a defined packet drop rate. This function returns either minimum multiplier if not found or returns the highest found multiplier that is under or equal the specified allowed drop rate. Valid range for return value is `<minimum_multiplier, drop_rate>`.
+- Binary search mode uses these parameters:
+  - `-bs` /  `--binary-search`
+    - Using this flag enables binary search mode.
+  - `-bsh` / `--binary-search-help`
+    - Shows a quick binary search parameter options.
+  - `-mm {FLOAT}` / `--min-multiplier {FLOAT}`
+    - Using this flag you can specify the bottom range of binary search.
+    - Input is in range of: `<0, +inf>`, default is 0.
+  - `-xm {FLOAT}` / `--max-multiplier {FLOAT}`
+    - Using this flag you can specify the top range of binary search.
+    - Input is in range of: `<0, +inf>`, default is 10.
+  - `-dr {FLOAT}%` / `--drop-rate {FLOAT}`
+    - Using this flat you can specify the target drop rate to converge towards to.
+    - Input is in range of %: `<0, 100>`, default is 1%.
+  - `-dt {FLOAT}` / `--delta {FLOAT}`
+    - Using this flag allows you to specify primary exit condition for the binary search.
+    - Exit condition is calculated as `(xm - mm) < delta`
+    - Default value is 0.05.
+  - `-mc {INT}` / `--max-cycles {INT}`
+    - Using this flag allows you to specify secondary exit condition for binary search.
+    - Limits the number of maximum cycles binary search will execute.
+    - Input is in range of: `<1, +inf>`, default is 20.
+  - `-rp {INT}` / `--repetitions {INT}`
+    - Using this flag allows you to specify number of times that Suricata will be launched with the current multiplier. This is to reduce fluctuations that might appear.
+    - Input is in range of: `<1, +inf>`, default is 2.
 
 ---
 
@@ -364,6 +395,47 @@ Progress is printed during execution:
 sending packets at 0.3 * default cps of .pcap
 ```
 
+### Binary search
+
+Binary search also cycles through each `param.py` combination. Test execution flow is as follows:
+
+1. **Setup** (conftest.py) — Allocate hugepages on the Suricata server, bind NIC to the appropriate driver (vfio-pci for DPDK, ethtool for AF_PACKET).
+2. **Modify config** — Apply parameter values from `param.py` to the Suricata YAML config.
+3. **Start Suricata** — Launch as a daemon on the remote host via SSH.
+4. **Start TRex** — Client and server begin traffic exchange at the current multiplier rate.
+5. **Wait** — Traffic runs for the configured duration (`--traffic-duration`).
+6. **Stop TRex** — Stop traffic generation.
+7. **Stop Suricata** — Send SIGTERM, wait for graceful shutdown, fetch `eve.json` statistics.
+8. **Save results** — Record throughput statistics for current multiplier.
+9. **Repeats from 3 to 8** depending on the number of repetitions defined.
+10. **Repeats from 3 to 9** with next converged multiplier depending on the number of max cycles defined, or until delta condition is satisfied.
+
+Progress is printed during execution:
+###### This informs beginning of a new every cycle:
+```
+[PROGRESS] ------ Cycle: 1/20 ------- [PROGRESS]
+```
+
+###### This informs beginning of a new repetitions:
+```
+print(f"\n[PROGRESS] Repetition number: 1/2 of multiplier 5.")
+```
+
+###### This informs recorded drop rate for a specific repetition:
+```
+[INFO] Drop rate: 43.2516% for repetition 1.
+```
+
+###### This informs recorded drop rate average from all repetitions:
+```
+[INFO] Average drop rate for multiplier 5: 43.6041%.
+```
+
+###### This informs about finished test:
+```
+[FINISH] Maximum multiplier found is: 4.5000. | param_file=param.py | params={'dpdk.interfaces[0].interface': '0000:05:00.0', 'dpdk.interfaces[0].mtu': 2500}
+```
+
 ---
 
 ## 8. Defining new tests
@@ -403,7 +475,7 @@ for [STF](https://trex-tgn.cisco.com/trex/doc/trex_manual.html), [ASTF](https://
 or [STL](https://trex-tgn.cisco.com/trex/doc/trex_stateless.html).
 
 For **all modes** you will want to create a subclass of `BaseTrexClientManager` and pass a list with tuples of paths to individual
-pcaps and "weights" of the pcaps. See the comment under `BaseTrexClientManager` for the interpretations of weights in the 
+pcaps and "weights" of the pcaps. See the comment under `BaseTrexClientManager` for the interpretations of weights in the
 individual TRex modes.
 
 If you want to place files into a specific directory on your remote server you can redefine the `get_remote_data_path` function
