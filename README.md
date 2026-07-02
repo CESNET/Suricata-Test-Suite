@@ -16,7 +16,8 @@ mirrored network traffic.
   - [7. Test execution flow](#7-test-execution-flow)
   - [8. Defining new tests](#8-defining-new-tests)
   - [9. Results and graphs](#9-results-and-graphs)
-  - [10. Troubleshooting](#10-troubleshooting)
+  - [10. Logging](#10-logging)
+  - [11. Troubleshooting](#11-troubleshooting)
 
 ---
 
@@ -441,7 +442,55 @@ Graphs are saved to `results/graphs/`.
 
 ---
 
-## 10. Troubleshooting
+## 10. Logging
+
+This test suite uses structured logging for debugging, monitoring, and troubleshooting. Logs are emitted to both the console and optional log files, with configurable verbosity levels.
+
+### Log Levels
+
+| Level      | Description                                                                 |
+|------------|-----------------------------------------------------------------------------|
+| **DEBUG**  | Detailed internal information (e.g., variable values, algorithm steps).     |
+| **INFO**   | General progress updates (e.g., cycle numbers, test start/completion).      |
+| **WARNING**| Non-critical issues that don't stop execution but may need attention.       |
+| **ERROR**  | Serious problems that prevent a specific operation from completing.         |
+| **CRITICAL**| Severe errors that may cause the entire test suite to fail.                |
+
+### Configuration
+
+Logging behavior is controlled via command-line options:
+
+- `--suite-log-level <LEVEL>`  
+  Set the minimum level shown on console (default: `INFO`).  
+  Example: `--suite-log-level=DEBUG` shows all messages including debug details.
+
+- `--no-suite-log-file`  
+  Disable writing logs to file. By default, logs are saved to:  
+  `results/artefacts/<timestamp>/pytest.log`
+
+### Log Output Format
+
+**Console output:**  
+```
+[LEVEL] | message
+```
+Example: `[INFO] | Authentication (publickey) successful!`
+
+**File output (`pytest.log`):**  
+```
+YYYY-MM-DD HH:MM:SS | LEVEL | module_name | message
+```
+Example: `2026-07-02 13:48:15 | INFO | util.suricata_manager | Running command: suricata -c ...`
+
+### Best Practices
+
+- Keep console at `INFO` for clean progress tracking during normal runs.
+- Always check `pytest.log` for full debug history if tests fail unexpectedly.
+- Library loggers (paramiko, fabric, invoke) are automatically suppressed to avoid duplicate output.
+
+---
+
+## 11. Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
