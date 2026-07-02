@@ -23,15 +23,30 @@ from pathlib import Path
 from itertools import product
 from param import filter
 from util.config_builder import ConfigBuilder
+from util.log_util import get_logger, setup_logging
 
 TIME_STR = time.strftime("-".join(["%Y", "%m", "%d", "%H:%M"]))
 PATH_TO_ARTEFACTS: str = str(Path(__file__).parent / "results" / "artefacts")
+logger = get_logger(__name__)
 
 # alias lbr_trex_client.interactive.trex to trex for importing native TRex profiles
 sys.modules["trex"] = trex
 
 
 def pytest_addoption(parser):
+    parser.addoption(
+        "--suite-log-level",
+        type=str,
+        default="INFO",
+        action="store",
+        help=("Logging level for suite logger (DEBUG, INFO, WARNING, ERROR)."),
+    )
+    parser.addoption(
+        "--no-suite-log-file",
+        default=False,
+        action="store_true",
+        help=("Disable writing suite logs into results/artefacts/<run>/pytest.log."),
+    )
     parser.addoption(
         "--remote-host",
         type=str,
@@ -128,6 +143,23 @@ def pytest_addoption(parser):
         help=("Generate traffic with this VLAN ID. 0 (default) for untagged."),
     )
 
+
+
+def pytest_configure(config):
+    run_dir = Path(PATH_TO_ARTEFACTS) / TIME_STR
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    log_file = None
+    if not config.getoption("--no-suite-log-file"):
+        log_file = str(run_dir / "pytest.log")
+
+    setup_logging(level=config.getoption("--suite-log-level"), log_file=log_file)
+    logger.info("Suite logging initialized: level=%s, file=%s", config.getoption("--suite-log-level"), log_file or "disabled")
+
+
+def pytest_runtest_logstart(nodeid, location):
+    sys.stdout.write("\n")
+    sys.stdout.flush()
 
 def get_suri_executor(request) -> remote_executor.Executor:
     host_name = get_host_internal(request)
@@ -375,10 +407,10 @@ def hugepages_allocated(request) -> bool:
 @pytest.fixture(scope="session", autouse=True)
 def check_hugepages(request) -> None:
     if hugepages_allocated(request):
-        print("Huge-pages already allocated")
+        logger.info("Huge-pages already allocated")
         return
 
-    print("Allocating huge-pages")
+    logger.info("Allocating huge-pages")
     process_set_hugepages = executable.Tool(
         f"dpdk-hugepages.py --setup {request.config.getoption('--suricata-hugepages')}",
         sudo=True,
@@ -514,7 +546,7 @@ def make_combinations_for_af_packet(queues, rx_descriptors):
 
 @pytest.fixture()
 def determine_capture_mode(request, get_settings_file):
-    print(f"capture mode: {suri_interface_bind(request)[1]}")
+    logger.info("capture mode: %s", suri_interface_bind(request)[1])
 
 
 @pytest.fixture(autouse=True)
