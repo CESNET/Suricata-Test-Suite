@@ -263,6 +263,13 @@ def save_stats(params, request, test_info: TestInfo, run_info: RunInfo):
         test_info, run_info, output_dir, aggregated_output_path, params
     )
 
+def create_symlink_to_latest(result_path: str):
+    latest_symlink = Path(__file__).resolve().parent.parent / "results" / "artefacts" / "latest"
+    if latest_symlink.exists() or latest_symlink.is_symlink():
+        latest_symlink.unlink()
+    latest_symlink.symlink_to(result_path)
+
+
 
 def create_symlink_to_latest(result_path: str):
     latest_symlink = (
