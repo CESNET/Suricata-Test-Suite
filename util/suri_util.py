@@ -249,9 +249,7 @@ def save_stats(params, request, test_info: TestInfo, run_info: RunInfo):
 
 
 def save_suricata_stats(request, output_dir: str):
-    suricata_tmp_stats_path: str = (
-        f"/tmp/suricata-{request.config.getoption('--user')}/"
-    )
+    suricata_tmp_stats_path: str = f"/tmp/suricata-{os.environ['USER']}/"
 
     if request.config.getoption("--collect-artifacts"):
         suricata_tmp_eve_path: str = os.path.join(suricata_tmp_stats_path, "eve.json")
