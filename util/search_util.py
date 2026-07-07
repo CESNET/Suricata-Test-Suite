@@ -14,9 +14,9 @@ def binary_search(
 ) -> float:
     """
     Core function of binary_search. Attributes mini, max, drop_rate, precision affect the algorithm in the following way:
-    We calculate the mid point between mini and maxi and then we run the test function with the mid point as multiplier. 
-    If the drop rate is higher than the target drop rate, we set the new max to mid. 
-    If the drop rate is lower than the target drop rate, we set the new min to mid. 
+    We calculate the mid point between mini and maxi and then we run the test function with the mid point as multiplier.
+    If the drop rate is higher than the target drop rate, we set the new max to mid.
+    If the drop rate is lower than the target drop rate, we set the new min to mid.
     We repeat this process until we have converged to a value within precision or we have reached max_cycles.
     If implementing custom testing function, use 1 for higher multiplier
     and -1 for lower multiplier.
@@ -34,9 +34,11 @@ def binary_search(
         drop rate.
     """
 
-    if (max_cycles <= 0):
+    if max_cycles <= 0:
         max_cycles = 1
-        print("[WARNING] Binary search: Maximum number of cycles was lower than 1. Setting to 1.")
+        print(
+            "[WARNING] Binary search: Maximum number of cycles was lower than 1. Setting to 1."
+        )
 
     if mini < 0:
         mini = 0
@@ -48,7 +50,9 @@ def binary_search(
 
     if mini > maxi:
         mini, maxi = maxi, mini
-        print("[WARNING] Binary search: Maximum multiplier is lower than minimum. Swapping values")
+        print(
+            "[WARNING] Binary search: Maximum multiplier is lower than minimum. Swapping values"
+        )
 
     if drop_rate < 0:
         drop_rate = 0
@@ -60,24 +64,25 @@ def binary_search(
 
     if repetitions < 1:
         repetitions = 1
-        print("[WARNING] Binary search: Repetition value is lower than 1. Setting to 1.")
+        print(
+            "[WARNING] Binary search: Repetition value is lower than 1. Setting to 1."
+        )
 
     max_multiplier = -1
 
     for i in range(1, max_cycles + 1):
-
         print(f"\n[PROGRESS] ------ Cycle: {i}/{max_cycles} ------- [PROGRESS]")
 
         mid = (mini + maxi) / 2
         check = _test_function(drop_rate, mid, repetitions, function)
 
         # check if we can go faster
-        if (check == 1):
+        if check == 1:
             mini = mid
             max_multiplier = mid
 
         # check if we must go slower
-        elif (check == -1):
+        elif check == -1:
             maxi = mid
 
         else:
@@ -110,7 +115,9 @@ def _test_function(target: float, multiplier: float, repetitions: int, function)
     """
     drop_rate_arr = []
     for i in range(1, repetitions + 1):
-        print(f"\n[PROGRESS] Repetition number: {i}/{repetitions} of multiplier {multiplier}.")
+        print(
+            f"\n[PROGRESS] Repetition number: {i}/{repetitions} of multiplier {multiplier}."
+        )
         function(multiplier)
         try:
             drop_rate_addition = get_drop_rate()
@@ -120,7 +127,9 @@ def _test_function(target: float, multiplier: float, repetitions: int, function)
         print(f"[INFO] Drop rate: {drop_rate_arr[-1]:.4f}% for repetition {i}.")
 
     drop_rate_avg = sum(drop_rate_arr) / len(drop_rate_arr)
-    print(f"\n[INFO] Average drop rate for multiplier {multiplier}: {drop_rate_avg:.4f}%.")
+    print(
+        f"\n[INFO] Average drop rate for multiplier {multiplier}: {drop_rate_avg:.4f}%."
+    )
 
     if drop_rate_avg > target:
         return -1

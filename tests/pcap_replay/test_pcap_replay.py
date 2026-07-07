@@ -13,8 +13,16 @@ from lbr_testsuite import trex
 from util.add_vlan import edit_vlan
 from util.suricata_manager import Suricata_manager, SuriDown
 from util.suri_util import save_stats, TestInfo, RunInfo
-from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf, send_pcap_to_trex, return_filename
+from conftest import (
+    kill_pytest,
+    get_trex_multi,
+    suri_interface_bind,
+    Suri_conf,
+    send_pcap_to_trex,
+    return_filename,
+)
 from util.search_util import binary_search
+
 
 @pytest.mark.parametrize(
     "rules_config",
@@ -24,7 +32,6 @@ from util.search_util import binary_search
     ],
     ids=["norules", "rules"],
 )
-
 def test_pcap_replay(
     request: pytest.FixtureRequest,
     trex_generators: dict,
@@ -46,10 +53,11 @@ def test_pcap_replay(
     drop_rate: float,
     precision: float,
     max_cycles: int,
-    repetitions: int
-    ):
-
-    trex_manager: trex.TRexManager = trex.TRexManager(trex.TRexMachinesPool(trex_generators))
+    repetitions: int,
+):
+    trex_manager: trex.TRexManager = trex.TRexManager(
+        trex.TRexMachinesPool(trex_generators)
+    )
 
     suri_daemon: Suricata_manager = Suricata_manager(
         request,
@@ -69,7 +77,7 @@ def test_pcap_replay(
         suricata_path_to_bin=suri_daemon.get_path_to_binary(),
         suricata_rules_paths=[suri_daemon.rules_file],
         suricata_config_path=suri_daemon.conf_file,
-        utilized_programs_info=utilized_programs_info
+        utilized_programs_info=utilized_programs_info,
     )
 
     traffic_generator: trex.TRexStateless = trex_manager.request_stateless(request)
@@ -79,12 +87,16 @@ def test_pcap_replay(
         traffic_generator.set_vlan(get_target_vlan)
 
     test_variant_name = f"{suri_conf.test_name}_{rules_config['name']}"
-    trex_multipliers: List[float] = get_trex_multi(get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name)
+    trex_multipliers: List[float] = get_trex_multi(
+        get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name
+    )
 
     pcap_filename = edit_vlan(get_path_to_pcap, get_target_vlan)
     send_pcap_to_trex(pcap_filename, request)
 
-    tester = Test_run(traffic_generator, suri_daemon, pcap_filename, test_info, params, request)
+    tester = Test_run(
+        traffic_generator, suri_daemon, pcap_filename, test_info, params, request
+    )
 
     if b_search:
         max_multiplier = binary_search(
@@ -100,14 +112,16 @@ def test_pcap_replay(
             f"\n[FINISH] Maximum multiplier found is: {max_multiplier:.4f}. | param_file={request.config.getoption('--param-file')} | params={params}\n\n"
         )
     else:
-        for idx,multiplier in enumerate(trex_multipliers, 1):
+        for idx, multiplier in enumerate(trex_multipliers, 1):
             print(
                 f"\n[Progress] multiplier {idx}/{len(trex_multipliers)} | param_file={request.config.getoption('--param-file')} | params={params}\n"
             )
             tester.test_run(multiplier)
 
+
 class Test_run:
     __test__ = False
+
     def __init__(
         self, traffic_generator, suri_daemon, pcap_filename, test_info, params, request
     ):
@@ -130,11 +144,11 @@ class Test_run:
             pytest.fail("Suricata is down.")
 
         self.traffic_generator.get_handler().push_remote(
-           pcap_filename=f"/tmp/pcaps/{return_filename(self.pcap_filename)}",
-           ports=[0],
-           ipg_usec=100,
-           speedup=200 * multiplier,
-           duration=duration
+            pcap_filename=f"/tmp/pcaps/{return_filename(self.pcap_filename)}",
+            ports=[0],
+            ipg_usec=100,
+            speedup=200 * multiplier,
+            duration=duration,
         )
 
         self.traffic_generator.wait_on_traffic()
@@ -143,7 +157,7 @@ class Test_run:
             self.suri_daemon.stop()
         except SuriDown:
             pytest.fail("Suricata was down.")
-        
+
         run_info = RunInfo(multiplier)
         run_info.trex_server_stats = self.traffic_generator.get_stats()
         run_info.trex_pretty_stats["opackets"] = run_info.trex_server_stats["total"][
