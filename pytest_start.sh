@@ -199,7 +199,7 @@ cp param.py bkp/ && mv bkp/param.py bkp/param$(date +%Y_%m_%d).py
 for pcie in "${pcie_array[@]}"
 do
   sed "s/PCIEaddr/$pcie/" param_template.py > param.py
-  $PYTHON -m pytest -s --log-level=info --user="$(whoami)" \
+  $PYTHON -m pytest -s --log-level=info \
     --suricata-hugepages="4G" \
     --target-mac="$target_mac" \
     --target-vlan="$target_vlan" \

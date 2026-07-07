@@ -45,13 +45,6 @@ def pytest_addoption(parser):
         ),
     )
     parser.addoption(
-        "--user",
-        type=str,
-        default=None,
-        action="store",
-        help=("Specify user that operates on the machine. "),
-    )
-    parser.addoption(
         "--suricata-hugepages",
         type=str,
         default="4G",
@@ -151,24 +144,20 @@ def pytest_addoption(parser):
 
 def get_suri_executor(request) -> remote_executor.Executor:
     host_name = get_host_internal(request)
-    user = get_user_internal(request)
+    user = os.environ["USER"]
 
     return remote_executor.RemoteExecutor(host=host_name, user=user)
 
 
 def get_trex_executor(request):
     trex_name = get_trex_internal(request)
-    user = get_user_internal(request)
+    user = os.environ["USER"]
 
     return remote_executor.RemoteExecutor(host=trex_name, user=user)
 
 
 def get_host_internal(request) -> Tuple[str, str]:
     return request.config.getoption("--remote-host")
-
-
-def get_user_internal(request) -> str:
-    return request.config.getoption("--user")
 
 
 def get_trex_internal(request):

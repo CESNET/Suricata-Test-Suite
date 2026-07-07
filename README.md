@@ -31,9 +31,14 @@ mirrored network traffic.
 2. **Set up the testing environment**:
 
 You will need your local machine and two servers. These need to be reachable via ssh using your
-username and ssh agent. Make sure that your servers have the appropriate drivers for your network
+username\* and ssh agent. Make sure that your servers have the appropriate drivers for your network
 card and the network stack you will be using (i.e. `DPDK` or `AF_PACKET`) and that you have disabled
 any unwanted behavior like `LLDP`, `TuneD` or disk swapping.
+
+\*If you want to use a different username for `ssh` you need to set the `USER` variable in the command.
+```bash
+USER="ssh_user" ./pytest_start.sh ...
+```
 
 On the Suricata server, you need sudo access and [suricata installed](https://docs.suricata.io/en/latest/install.html)
 in such a way that the `suricata` and `suricatasc` binaries are in your user's $PATH.
@@ -174,7 +179,6 @@ python3.11 -m pytest \
     --trex-generator="trex2,0000:b3:00.0" \
     --trex-generator="trex2,0000:b3:00.1" \
     --remote-host="claret" \
-    --user="$(whoami)" \
     --param-file="param.py" \
     --traffic-duration=300 \
     -s --log-level=info \
