@@ -22,15 +22,19 @@ from shutil import copy as copy_content
 
 class DropRateError(Exception):
     """Custom exception for drop rate calculation errors."""
+
     pass
 
 
 class GetStatsError(Exception):
     """Custom exception for get stats errors."""
+
     pass
+
 
 class MultiplierNotFoundError(Exception):
     """Custom exception raised when binary search fails to find a suitable multiplier."""
+
     pass
 
 
@@ -263,12 +267,14 @@ def save_stats(params, request, test_info: TestInfo, run_info: RunInfo):
         test_info, run_info, output_dir, aggregated_output_path, params
     )
 
+
 def create_symlink_to_latest(result_path: str):
-    latest_symlink = Path(__file__).resolve().parent.parent / "results" / "artefacts" / "latest"
+    latest_symlink = (
+        Path(__file__).resolve().parent.parent / "results" / "artefacts" / "latest"
+    )
     if latest_symlink.exists() or latest_symlink.is_symlink():
         latest_symlink.unlink()
     latest_symlink.symlink_to(result_path)
-
 
 
 def save_suricata_stats(request, output_dir: str):
@@ -415,7 +421,9 @@ def get_trex_suri_stats(path: str = None, stats_to_get: List[str] = None):
         Dictionary with requested stats and their values, plus a "_source_path" key.
     """
     if path is None:
-        latest_symlink = Path(__file__).resolve().parent.parent / "results" / "artefacts" / "latest"
+        latest_symlink = (
+            Path(__file__).resolve().parent.parent / "results" / "artefacts" / "latest"
+        )
         if not latest_symlink.exists():
             raise GetStatsError(f"Latest symlink does not exist: {latest_symlink}")
         path = str(latest_symlink.resolve())
@@ -466,7 +474,9 @@ def get_drop_rate():
         Raises DropRateError if unable to calculate drop rate.
     """
     try:
-        stats = get_trex_suri_stats(stats_to_get=["suricata_rx_packets", "trex_tx_packets"])
+        stats = get_trex_suri_stats(
+            stats_to_get=["suricata_rx_packets", "trex_tx_packets"]
+        )
         suricata_rx = stats.get("suricata_rx_packets", 0)
         trex_tx = stats.get("trex_tx_packets", 0)
 
@@ -484,4 +494,3 @@ def get_drop_rate():
         raise
     except Exception as e:
         raise DropRateError(f"Failed to calculate drop rate: {e}.")
-    

@@ -132,9 +132,7 @@ def pytest_addoption(parser):
         "--binary-search",
         default=False,
         action="store_true",
-        help=(
-            "Use binary search mode for finding optimal Suricata speed."
-        )
+        help=("Use binary search mode for finding optimal Suricata speed."),
     )
 
     parser.addoption(
@@ -142,9 +140,7 @@ def pytest_addoption(parser):
         default=0.0,
         type=float,
         action="store",
-        help=(
-            "Minimum multiplier to find value from."
-        )
+        help=("Minimum multiplier to find value from."),
     )
 
     parser.addoption(
@@ -152,9 +148,7 @@ def pytest_addoption(parser):
         default=10.0,
         type=float,
         action="store",
-        help=(
-            "Maximum multiplier to find value up to."
-        )
+        help=("Maximum multiplier to find value up to."),
     )
 
     parser.addoption(
@@ -162,9 +156,7 @@ def pytest_addoption(parser):
         type=float,
         default=1.0,
         action="store",
-        help=(
-            "Target drop rate in percentage."
-        )
+        help=("Target drop rate in percentage."),
     )
 
     parser.addoption(
@@ -180,9 +172,7 @@ def pytest_addoption(parser):
         type=int,
         default=20,
         action="store",
-        help=(
-            "Maximum amount of steps for binary search."
-        )
+        help=("Maximum amount of steps for binary search."),
     )
 
     parser.addoption(
@@ -190,10 +180,9 @@ def pytest_addoption(parser):
         type=int,
         default=2,
         action="store",
-        help=(
-            "Maximum amount of repetitions per multiplier."
-        )
+        help=("Maximum amount of repetitions per multiplier."),
     )
+
 
 def get_suri_executor(request) -> remote_executor.Executor:
     host_name = get_host_internal(request)
@@ -286,33 +275,41 @@ def get_target_mac(request):
 def get_target_vlan(request):
     return request.config.getoption("--target-vlan")
 
+
 @pytest.fixture()
 def b_search(request):
     return request.config.getoption("--binary-search")
+
 
 @pytest.fixture()
 def min_search_multiplier(request):
     return float(request.config.getoption("--min-search-multiplier"))
 
+
 @pytest.fixture()
 def max_search_multiplier(request):
     return float(request.config.getoption("--max-search-multiplier"))
+
 
 @pytest.fixture()
 def drop_rate(request):
     return float(request.config.getoption("--drop-rate"))
 
+
 @pytest.fixture()
 def precision(request):
     return float(request.config.getoption("--precision"))
+
 
 @pytest.fixture()
 def max_cycles(request):
     return int(request.config.getoption("--max-cycles"))
 
+
 @pytest.fixture()
 def repetitions(request):
     return int(request.config.getoption("--repetitions"))
+
 
 def return_filename(pcap_filename):
     match = re.search(r"[^\/]+\.pcap$", pcap_filename)
@@ -321,7 +318,6 @@ def return_filename(pcap_filename):
 
 
 def send_pcap_to_trex(pcap_filename, request):
-
     pcaps_dir_trex = executable.Tool(
         "mkdir -p /tmp/pcaps/ && chmod 777 /tmp/pcaps/",
         executor=get_trex_executor(request),
@@ -642,7 +638,6 @@ def setup_af_packet(request):
 
 
 def af_packet_get_queues_rx_descriptors(param_file, params):
-
     for parameter_path in params[-1].keys():
         af_packet_match = re.match(r"af-packet\[[0-9]+\].interface", parameter_path)
 

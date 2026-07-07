@@ -18,6 +18,7 @@ from util.suri_util import save_stats, TestInfo, RunInfo
 from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
 from util.search_util import binary_search
 
+
 @pytest.mark.parametrize(
     "rules_config",
     [
@@ -26,7 +27,6 @@ from util.search_util import binary_search
     ],
     ids=["norules", "rules"],
 )
-
 def test_web_50_sites(
     request: pytest.FixtureRequest,
     trex_generators: dict,
@@ -49,7 +49,6 @@ def test_web_50_sites(
     max_cycles: int,
     repetitions: int,
 ):
-
     trex_manager: trex.TRexManager = trex.TRexManager(
         trex.TRexMachinesPool(trex_generators)
     )
@@ -106,8 +105,10 @@ def test_web_50_sites(
             print(f"sending packets at {multiplier} * default cps of .pcap")
             tester.test_run(multiplier)
 
+
 class Test_run:
     __test__ = False
+
     def __init__(self, client, suri_daemon, test_info, params, request):
         self.trex_client = client
         self.suri_daemon = suri_daemon
