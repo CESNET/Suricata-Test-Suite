@@ -1,7 +1,7 @@
 """
 Author(s): Adam Kiripolský <adamkiripolsky.official@gmail.com>
 
-Copyright: (C) 2023 CESNET, z.s.p.o.
+Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.
 """
 
 import os

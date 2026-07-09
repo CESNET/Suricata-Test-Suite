@@ -1,7 +1,9 @@
 """
-Author(s): Adam Kiripolský <adamkiripolsky.official@gmail.com>
+Author(s):  Adam Kiripolský <adamkiripolsky.official@gmail.com>,
+            Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>,
+            Dávid Hanko <davihan11@gmail.com>
 
-Copyright: (C) 2023 CESNET, z.s.p.o.
+Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.
 
 Suricata testing module.
 """
@@ -23,6 +25,7 @@ from conftest import (
 from util.multiplier_iterator import create_multiplier_iterator
 from util.test_runner import PcapReplayTestRun
 
+
 @pytest.mark.parametrize(
     "rules_config",
     [
@@ -31,7 +34,6 @@ from util.test_runner import PcapReplayTestRun
     ],
     ids=["norules", "rules"],
 )
-
 def test_pcap_replay(
     request: pytest.FixtureRequest,
     trex_generators: dict,
@@ -71,7 +73,7 @@ def test_pcap_replay(
         suricata_path_to_bin=suri_daemon.get_path_to_binary(),
         suricata_rules_paths=[suri_daemon.rules_file],
         suricata_config_path=suri_daemon.conf_file,
-        utilized_programs_info=utilized_programs_info
+        utilized_programs_info=utilized_programs_info,
     )
 
     traffic_generator: trex.TRexStateless = trex_manager.request_stateless(request)
@@ -81,7 +83,9 @@ def test_pcap_replay(
         traffic_generator.set_vlan(get_target_vlan)
 
     test_variant_name = f"{suri_conf.test_name}_{rules_config['name']}"
-    trex_multipliers: List[float] = get_trex_multi(get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name)
+    trex_multipliers: List[float] = get_trex_multi(
+        get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name
+    )
 
     pcap_filename = edit_vlan(get_path_to_pcap, get_target_vlan)
     send_pcap_to_trex(pcap_filename, request)

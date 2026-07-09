@@ -1,9 +1,13 @@
 #!/usr/bin/python
 
 """
-Author(s): Adam Kiripolský <adamkiripolsky.official@gmail.com>
+Author(s):  Adam Kiripolský <adamkiripolsky.official@gmail.com>,
+            Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>,
+            Dávid Hanko <davihan11@gmail.com>
 
-Copyright: (C) 2023 CESNET, z.s.p.o.
+Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.
+
+Suricata testing module.
 """
 
 from dataclasses import dataclass, field
@@ -22,15 +26,19 @@ from shutil import copy as copy_content
 
 class DropRateError(Exception):
     """Custom exception for drop rate calculation errors."""
+
     pass
 
 
 class GetStatsError(Exception):
     """Custom exception for get stats errors."""
+
     pass
+
 
 class MultiplierNotFoundError(Exception):
     """Custom exception raised when binary search fails to find a suitable multiplier."""
+
     pass
 
 
@@ -262,13 +270,6 @@ def save_stats(params, request, test_info: TestInfo, run_info: RunInfo):
     save_aggregated_stats(
         test_info, run_info, output_dir, aggregated_output_path, params
     )
-
-def create_symlink_to_latest(result_path: str):
-    latest_symlink = Path(__file__).resolve().parent.parent / "results" / "artefacts" / "latest"
-    if latest_symlink.exists() or latest_symlink.is_symlink():
-        latest_symlink.unlink()
-    latest_symlink.symlink_to(result_path)
-
 
 
 def create_symlink_to_latest(result_path: str):

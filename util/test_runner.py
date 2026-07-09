@@ -1,8 +1,11 @@
-"""Test runner with template method pattern.
+"""
+Author(s):  Dávid Hanko <davihan11@gmail.com>
 
-Provides a base TestRun class that orchestrates the common lifecycle
-(suricata start → traffic → suricata stop → save stats) and two
-concrete subclasses for the two TRex modes used across tests.
+Copyright: (C) 2026 CESNET, z.s.p.o.
+
+Test runner class for Suricata tests.
+
+Provide a common interface for running Suricata tests, including setup, traffic generation, and stats collection.
 """
 
 import pytest
@@ -12,12 +15,6 @@ from util.suri_util import RunInfo, save_stats, TestInfo
 
 
 class TestRun:
-    """Orchestrates a single test run: setup → traffic → teardown → stats.
-
-    Subclasses override the three hook methods to provide
-    mode-specific behaviour.
-    """
-
     def __init__(
         self,
         suri_daemon: Suricata_manager,
@@ -30,10 +27,6 @@ class TestRun:
         self.params = params
         self.request = request
 
-    # ------------------------------------------------------------------
-    # Hooks — override in subclasses
-    # ------------------------------------------------------------------
-
     def _before_traffic(self, multiplier: float, duration: int):
         """Prepare TRex before suricata starts (e.g. reset, set_props)."""
 
@@ -43,10 +36,6 @@ class TestRun:
 
     def _collect_stats(self, run_info: RunInfo):
         """Attach TRex stats to *run_info* after traffic completes."""
-
-    # ------------------------------------------------------------------
-    # Template method
-    # ------------------------------------------------------------------
 
     def execute(self, multiplier: float, duration: int | None = None):
         if duration is None:

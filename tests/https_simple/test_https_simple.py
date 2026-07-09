@@ -1,15 +1,12 @@
 """
-Author(s): Adam Kiripolský <adamkiripolsky.official@gmail.com>
+Author(s):  Adam Kiripolský <adamkiripolsky.official@gmail.com>,
+            Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>,
+            Dávid Hanko <davihan11@gmail.com>
 
-Copyright: (C) 2023 CESNET, z.s.p.o.
+Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.
 
 Suricata testing module.
-
-Usage:
-    Without topology:
-        pytest --trex-generator="trex,0000:65:00.0" --remote-host="claret,0000:3b:00.0" -s --log-level=info
 """
-
 
 import pytest
 import signal
@@ -23,11 +20,15 @@ from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
 from util.multiplier_iterator import create_multiplier_iterator
 from util.test_runner import AstfTestRun
 
-@pytest.mark.parametrize("rules_config", [
-    {"name": "norules", "path": "/dev/null/"},
-    {"name": "rules", "path": "/var/lib/suricata/rules/suricata.rules"}
-], ids=["norules", "rules"])
 
+@pytest.mark.parametrize(
+    "rules_config",
+    [
+        {"name": "norules", "path": "/dev/null/"},
+        {"name": "rules", "path": "/var/lib/suricata/rules/suricata.rules"},
+    ],
+    ids=["norules", "rules"],
+)
 def test_https_simple(
     request: pytest.FixtureRequest,
     trex_generators: dict,
@@ -48,30 +49,36 @@ def test_https_simple(
         trex.TRexMachinesPool(trex_generators)
     )
 
-    trex_manager: trex.TRexManager = trex.TRexManager(trex.TRexMachinesPool(trex_generators))
+    trex_manager: trex.TRexManager = trex.TRexManager(
+        trex.TRexMachinesPool(trex_generators)
+    )
 
-    suri_daemon: Suricata_manager = Suricata_manager(request,
-                                                     suricata_tmp_stats_path,
-                                                     interface=suri_interface_bind(request)[0],
-                                                     capture_mode=suri_interface_bind(request)[1],
-                                                     conf_file=suri_conf.conf_file.with_params(params).build(),
-                                                     rules_file=rules_config["path"],
-                                                     )
+    suri_daemon: Suricata_manager = Suricata_manager(
+        request,
+        suricata_tmp_stats_path,
+        interface=suri_interface_bind(request)[0],
+        capture_mode=suri_interface_bind(request)[1],
+        conf_file=suri_conf.conf_file.with_params(params).build(),
+        rules_file=rules_config["path"],
+    )
     signal.signal(signal.SIGINT, kill_pytest)
 
-    test_info = TestInfo(result_path=result_path,
-                         traffic_duration=get_traffic_duration,
-                         heatup_duration=get_heatup_duration,
-                         suricata_path_to_bin=suri_daemon.get_path_to_binary(),
-                         suricata_rules_paths=[suri_daemon.rules_file],
-                         suricata_config_path=suri_daemon.conf_file,
-                         utilized_programs_info=utilized_programs_info
-                         )
+    test_info = TestInfo(
+        result_path=result_path,
+        traffic_duration=get_traffic_duration,
+        heatup_duration=get_heatup_duration,
+        suricata_path_to_bin=suri_daemon.get_path_to_binary(),
+        suricata_rules_paths=[suri_daemon.rules_file],
+        suricata_config_path=suri_daemon.conf_file,
+        utilized_programs_info=utilized_programs_info,
+    )
 
     trex_client = HttpsProfile(trex_manager, request, get_target_mac, get_target_vlan)
 
     test_variant_name = f"{suri_conf.test_name}_{rules_config['name']}"
-    trex_multipliers: List[float] = get_trex_multi(get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name)
+    trex_multipliers: List[float] = get_trex_multi(
+        get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name
+    )
 
     tester = AstfTestRun(trex_client, suri_daemon, test_info, params, request)
 

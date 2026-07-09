@@ -1,7 +1,9 @@
 """
-Author(s): Matyáš Sedmidubský <sedmidubsky@cesnet.cz>
+Author(s):  Adam Kiripolský <adamkiripolsky.official@gmail.com>,
+            Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>,
+            Dávid Hanko <davihan11@gmail.com>
 
-Copyright: (C) 2026 CESNET, z.s.p.o.
+Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.
 
 Suricata testing module.
 """
@@ -19,6 +21,7 @@ from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
 from util.multiplier_iterator import create_multiplier_iterator
 from util.test_runner import AstfTestRun
 
+
 @pytest.mark.parametrize(
     "rules_config",
     [
@@ -27,7 +30,6 @@ from util.test_runner import AstfTestRun
     ],
     ids=["norules", "rules"],
 )
-
 def test_web_50_sites(
     request: pytest.FixtureRequest,
     trex_generators: dict,
@@ -44,7 +46,6 @@ def test_web_50_sites(
     get_target_vlan: int,
     b_search: dict | None,
 ):
-
     trex_manager: trex.TRexManager = trex.TRexManager(
         trex.TRexMachinesPool(trex_generators)
     )

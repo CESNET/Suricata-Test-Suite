@@ -1,7 +1,11 @@
 """
-Author(s): Adam Kiripolský <adamkiripolsky.official@gmail.com>
+Author(s):  Adam Kiripolský <adamkiripolsky.official@gmail.com>,
+            Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>,
+            Dávid Hanko <davihan11@gmail.com>
 
-Copyright: (C) 2023 CESNET, z.s.p.o.
+Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.
+
+Suricata testing module.
 """
 
 import sys
@@ -383,9 +387,9 @@ def assert_available_machines(request) -> None:
     )
     stdout, stderr = print_pcie_match.run()
 
-    assert (
-        stderr == ""
-    ), f"Error while gathering information about pcie interfaces, stderr: {stderr}"
+    assert stderr == "", (
+        f"Error while gathering information about pcie interfaces, stderr: {stderr}"
+    )
     assert int(stdout) > 0, "Interface on host not found"
 
 
@@ -404,9 +408,9 @@ def hugepages_allocated(request) -> bool:
     )
     stdout, stderr = process_get_hugepages_count_str.run()
 
-    assert (
-        stderr == ""
-    ), f"Error while gathering information about allocated hugepages: {stderr}"
+    assert stderr == "", (
+        f"Error while gathering information about allocated hugepages: {stderr}"
+    )
 
     # huge_pages[0] == "HugePages_Free:", huge_pages[1] is some nubmer as `str`
     huge_pages: List[str] = stdout.split()
@@ -433,9 +437,9 @@ def check_hugepages(request) -> None:
 
 
 def file_is_accessible(file):
-    assert isfile(file) and access(
-        file, R_OK
-    ), f"File {file} doesn't exist or isn't readable"
+    assert isfile(file) and access(file, R_OK), (
+        f"File {file} doesn't exist or isn't readable"
+    )
 
 
 def import_module(param_file):

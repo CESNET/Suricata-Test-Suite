@@ -1,3 +1,13 @@
+"""
+Author(s):  Dávid Hanko <davihan11@gmail.com>
+
+Copyright: (C) 2026 CESNET, z.s.p.o.
+
+Multiplier iterator classes for Suricata tests.
+
+Provide a common interface for running Suricata tests, including setup, traffic generation, and stats collection.
+"""
+
 from abc import ABC, abstractmethod
 from typing import List
 
@@ -5,13 +15,6 @@ from util.suri_util import MultiplierNotFoundError
 
 
 class MultiplierIterator(ABC):
-    """Abstract iterator that yields multipliers one at a time.
-
-    The test calls next() to get the next multiplier, feeds back the
-    resulting drop rate via set_result(), and repeats. The underlying
-    strategy (enumeration or binary search) is transparent to the test.
-    """
-
     def __init__(self):
         self._finished = False
         self._current_multiplier = None
