@@ -6,22 +6,42 @@ usage(){
   set +x
   echo "Bash script to start pytest"
   echo "Options:"
-  echo "-s | --server [SERVER] to specify the server, where Suricata will be running"
-  echo "-tm | --target-mac [MAC_ADDRESS] to specify where to send traffic when not using ASTF TRex."
-  echo "-tv | --target-vlan [VLAN_ID] to specify what VLAN tag to use for generated traffic."
-  echo '-d | --defined-tests [TESTS] to specify tests, which have to be included, for all available tests run [-d|--defined-tests] " ",
+  echo "-s    | --server [SERVER] to specify the server, where Suricata will be running"
+  echo "-tm   | --target-mac [MAC_ADDRESS] to specify where to send traffic when not using ASTF TRex."
+  echo "-tv   | --target-vlan [VLAN_ID] to specify what VLAN tag to use for generated traffic."
+  echo '-d    | --defined-tests [TESTS] to specify tests, which have to be included, for all available tests run [-d|--defined-tests] " ",
   for specific tests: [-d|--defined-tests] "nfs_smb_simple https_simple" or use multiple parameter specification, for specific test from test file
   use [-d|--defined-tests] https_simple/test_https_simple.py::test_https_norules, by default it runs http_simple tests'
-  echo "-t | --defined-time [TIME] to specify traffic duration in tests (seconds)"
-  echo "-tg | --trex-server-hostname [TRAFFIC GENERATOR] to specify traffic generator server for testing"
-  echo "-p1 | --trex-server-port-1 [TRAFFIC GENERATOR PORT] to specify traffic generator port"
-  echo "-p2 | --trex-server-port-2 [TRAFFIC GENERATOR PORT] to specify traffic generator port"
-  echo "-p | --pcie [PCIE] to specify, on which pcie will be Suricata tested, use multiple parameter specification or [-p|--pcie] "0000:3b:00.0 0000:3b:00.1""
-  echo "-ht | --heatup [TIME] to specify the duration for which to wait before measuring statistics"
-  echo "-f | --filter [rules/norules] starts Suricata with/without rules"
-  echo "-pc | --pcap [PATH] to specify the pcap file to send to Suricata. Also sets --defined-tests to *only* pcap_replay"
-  echo "-pm | --prefer-trex-mode [MODE] to suggest a mode for TRex. If unavailable tests use their defaults."
-  echo "-fm | --force-trex-mode [MODE] to force a TRex mode. If unavailable tests get skipped. Overrides -pm"
+  echo "-t    | --defined-time [TIME] to specify traffic duration in tests (seconds)"
+  echo "-tg   | --trex-server-hostname [TRAFFIC GENERATOR] to specify traffic generator server for testing"
+  echo "-p1   | --trex-server-port-1 [TRAFFIC GENERATOR PORT] to specify traffic generator port"
+  echo "-p2   | --trex-server-port-2 [TRAFFIC GENERATOR PORT] to specify traffic generator port"
+  echo "-p    | --pcie [PCIE] to specify, on which pcie will be Suricata tested, use multiple parameter specification or [-p|--pcie] "0000:3b:00.0 0000:3b:00.1""
+  echo "-ht   | --heatup [TIME] to specify the duration for which to wait before measuring statistics"
+  echo "-f    | --filter [rules/norules] starts Suricata with/without rules"
+  echo "-pc   | --pcap [PATH] to specify the pcap file to send to Suricata. Also sets --defined-tests to *only* pcap_replay"
+  echo "-pm   | --prefer-trex-mode [MODE] to suggest a mode for TRex. If unavailable tests use their defaults."
+  echo "-fm   | --force-trex-mode [MODE] to force a TRex mode. If unavailable tests get skipped. Overrides -pm"
+  echo "-bs   | --binary-search <mm> <xm> <dr> <pr> [rp] to enable automatic throughput search"
+  echo "-bsh  | --binary-search-help to show help for binary search mode"
+  exit 0
+}
+
+binary_search_usage(){
+  set +x
+  echo "Bash script to start pytest"
+  echo "Binary search mode"
+  echo "Usage:"
+  echo "  -bs | --binary-search <mm> <xm> <dr> <pr>"
+  echo ""
+  echo "Positional arguments:"
+  echo "  mm  | min-multiplier  [FLOAT]  Lowest bound of the search range. (required)"
+  echo "  xm  | max-multiplier  [FLOAT]  Highest bound of the search range. (required)"
+  echo "  dr  | drop-rate       [FLOAT]  Max allowed drop rate in % <0,100>. (required)"
+  echo "  pr  | precision       [FLOAT]  Exit when (xm - mm) < precision. (required)"
+  echo ""
+  echo "Examples:"
+  echo "  -bs 0.0 10.0 1.0 0.05"
   exit 0
 }
 
@@ -50,7 +70,23 @@ while [ "$#" -gt 0 ]; do
 	-pc | --pcap) pcap_replay="$2"; shift 2 ;;
     -pm | --prefer-trex-mode) trex_mode_flags+="--prefer-trex-mode $2 "; shift 2 ;;
     -fm | --force-trex-mode) trex_mode_flags+="--force-trex-mode $2 "; shift 2 ;;
-    -h | --help) usage ; shift ;;
+    -h | --help) usage ;;
+    -bsh | --binary-search-help) binary_search_usage ;;
+    -bs | --binary-search)
+        binary_search_enabled=true
+        shift
+        binary_search_args=()
+        while [ "$#" -gt 0 ] && [[ ! "$1" =~ ^- ]]; do
+            binary_search_args+=("$1")
+            shift
+        done
+        if [ ${#binary_search_args[@]} -ne 4 ]; then
+            echo "Error: --binary-search (-bs) requires exactly 4 arguments: <min> <max> <drop_rate> <precision>"
+            echo "Got ${#binary_search_args[@]} argument(s): ${binary_search_args[*]}"
+            binary_search_usage
+            exit 1
+        fi
+        ;;
     --) shift; read -a extra_args <<< "$@"; break ;;
     *) >&2 echo unsupported option: $1
       usage
@@ -159,6 +195,13 @@ if [ -z "$pcies" ]; then
     else
         echo "Error: No PCIe addresses specified. Use -p to provide at least one PCIe address."
         exit 1
+    fi
+fi
+
+if [ "$binary_search_enabled" = true ]; then
+    extra_args+=(--binary-search)
+    if [ ${#binary_search_args[@]} -gt 0 ]; then
+        extra_args+=("${binary_search_args[@]}")
     fi
 fi
 
