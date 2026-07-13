@@ -143,6 +143,7 @@ DEFAULT_TARGET_VLAN=15
 DEFAULT_TESTS="http_simple nfs_smb_simple"
 DEFAULT_TIME=300
 DEFAULT_HEATUP=10
+DEFAULT_HUGEPAGES="8G"
 ```
 
 Note that an empty string ("") in `-d` (or `DEFAULT_TESTS`) is a valid value for running all tests
