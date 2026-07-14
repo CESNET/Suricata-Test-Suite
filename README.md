@@ -127,22 +127,25 @@ Optionally you can create a `.env` file with default variables, so that you don'
 The file will look like this:
 
 ```bash
+# Variables marked with "# -" don't have any default value, otherwise
+# default values are shown
+
 # Mandatory flags
 # if these aren't set, you have to manually specify them every time
-DEFAULT_SURICATA_SERVER="claret"
-DEFAULT_TREX_SERVER="trex2"
-DEFAULT_TREX_PORT1="0000:b3:00.0"
-DEFAULT_TREX_PORT2="0000:b3:00.1"
-DEFAULT_PCIES="0000:3b:00.0"
+DEFAULT_SURICATA_SERVER="claret"  # -
+DEFAULT_TREX_SERVER="trex2"       # -
+DEFAULT_TREX_PORT1="0000:b3:00.0" # -
+DEFAULT_TREX_PORT2="0000:b3:00.1" # -
+DEFAULT_PCIES="0000:3b:00.0"      # -
 
 # Mandatory for single port tests
-DEFAULT_TARGET_MAC="08:C0:EB:88:C5:38"
+DEFAULT_TARGET_MAC="08:C0:EB:88:C5:38" # -
 
 # Optional flags
-DEFAULT_TARGET_VLAN=15
-DEFAULT_TESTS="http_simple nfs_smb_simple"
+DEFAULT_TARGET_VLAN=15                     # -
+DEFAULT_TESTS="http_simple nfs_smb_simple" # all tests by default
 DEFAULT_TIME=300
-DEFAULT_HEATUP=10
+DEFAULT_HEATUP=0
 DEFAULT_HUGEPAGES="6G"
 ```
 
