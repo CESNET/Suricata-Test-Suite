@@ -49,7 +49,7 @@ def pytest_addoption(parser):
     parser.addoption(
         "--suricata-hugepages",
         type=str,
-        default="4G",
+        default="6G",
         action="store",
         help=("Specify amount of hugepages to be setup on remote machine. "),
     )
@@ -456,24 +456,41 @@ def get_trex_multi(test_settings_file, server, pci, test_name):
     file_is_accessible(test_settings_file)
     with open(test_settings_file) as f:
         data = json.load(f)
-        query_result = (
-            str(
-                jq.compile(
-                    f'.configuration.tests[] | select(.test_name == "{test_name}") | .servers[] | select(.server_name == "{server}") | .pci[] | select(.pcie_addr == "{pci}") | .trex_multipliers'
-                )
-                .input_value(data)
-                .all()
-            )
-            .replace("[", "")
-            .replace("]", "")
+    pcies = (
+        jq.compile(
+            f'.configuration.tests[] | select(.test_name == "{test_name}") | .servers[] | select(.server_name == "{server}") | .pci[] | .pcie_addr'
         )
+        .input_value(data)
+        .all()
+    )
+
+    group = None
+    for pattern in pcies:
         try:
-            multipliers = [float(i) for i in query_result.split(",")]
-        except ValueError:
-            raise ValueError(
-                f"No match found for {server} and {pci} in {test_settings_file}:{test_name}"
-            )
-        return multipliers
+            if re.compile(pattern, re.IGNORECASE).fullmatch(pci) is not None:
+                group = pattern
+                break
+        except re.error:
+            if pci == pattern:
+                group = pattern
+                break
+
+    if group is None:
+        raise ValueError(
+            f"No match found for {server} and {pci} in {test_settings_file}:{test_name}"
+        )
+
+    # re-escape backslashes
+    group = group.replace("\\", "\\\\")
+
+    multipliers = (
+        jq.compile(
+            f'.configuration.tests[] | select(.test_name == "{test_name}") | .servers[] | select(.server_name == "{server}") | .pci[] | select(.pcie_addr == "{group}") | .trex_multipliers'
+        )
+        .input_value(data)
+        .first()
+    )
+    return [float(x) for x in multipliers]
 
 
 def filters_apply(parametrize_args):

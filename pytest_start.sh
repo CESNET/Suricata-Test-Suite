@@ -22,6 +22,7 @@ usage(){
   echo "-pc   | --pcap [PATH] to specify the pcap file to send to Suricata. Also sets --defined-tests to *only* pcap_replay"
   echo "-pm   | --prefer-trex-mode [MODE] to suggest a mode for TRex. If unavailable tests use their defaults."
   echo "-fm   | --force-trex-mode [MODE] to force a TRex mode. If unavailable tests get skipped. Overrides -pm"
+  echo "-sh   | --suricata-hugepages [SIZE] to specify how much RAM to allocate in hugepages. Default is 6G."
   echo "-bs   | --binary-search <mm> <xm> <dr> <pr> to enable automatic throughput search"
   echo "-bsh  | --binary-search-help to show help for binary search mode"
   exit 0
@@ -70,6 +71,7 @@ while [ "$#" -gt 0 ]; do
 	-pc | --pcap) pcap_replay="$2"; shift 2 ;;
     -pm | --prefer-trex-mode) trex_mode_flags+="--prefer-trex-mode $2 "; shift 2 ;;
     -fm | --force-trex-mode) trex_mode_flags+="--force-trex-mode $2 "; shift 2 ;;
+    -sh | --suricata-hugepages) hugepages="$2"; shift 2 ;;
     -h | --help) usage ;;
     -bsh | --binary-search-help) binary_search_usage ;;
     -bs | --binary-search)
@@ -201,6 +203,14 @@ if [ "$binary_search_enabled" = true ]; then
     fi
 fi
 
+if [ -z "$hugepages" ]; then
+    if [ ! -z "$DEFAULT_HUGEPAGES" ]; then
+        hugepages="$DEFAULT_HUGEPAGES"
+    else
+        hugepages="6G"
+    fi
+fi
+
 if [ -z "$VIRTUAL_ENV" ]; then
     if [ -d ".venv" ]; then
         source ".venv/bin/activate"
@@ -239,7 +249,7 @@ for pcie in "${pcie_array[@]}"
 do
   sed "s/PCIEaddr/$pcie/" param_template.py > param.py
   $PYTHON -m pytest -s --log-level=info \
-    --suricata-hugepages="4G" \
+    --suricata-hugepages="$hugepages" \
     --target-mac="$target_mac" \
     --target-vlan="$target_vlan" \
     --trex-generator="$trex_server_hostname,$trex_server_port_1" \
