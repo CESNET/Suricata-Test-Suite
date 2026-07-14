@@ -143,6 +143,20 @@ def pytest_addoption(parser):
         ),
     )
 
+    parser.addoption(
+        "--binary-search",
+        nargs="*",
+        type=float,
+        default=None,
+        action="store",
+        help=(
+            "Enable binary search mode for finding optimal Suricata speed. "
+            "Accepts exactly 4 positional arguments: "
+            "<min_multiplier> <max_multiplier> <drop_rate%> <precision>. "
+            "Example: --binary-search 0.0 10.0 1.0 0.05"
+        ),
+    )
+
 
 def get_suri_executor(request) -> remote_executor.Executor:
     host_name = get_host_internal(request)
@@ -230,6 +244,28 @@ def get_target_mac(request):
 @pytest.fixture()
 def get_target_vlan(request):
     return request.config.getoption("--target-vlan")
+
+
+@pytest.fixture()
+def b_search(request):
+    """Returns None if binary search is disabled, or a dict of params if enabled.
+
+    Dict keys: min, max, drop_rate, precision
+    """
+    val = request.config.getoption("--binary-search")
+    if val is None:
+        return None
+    if len(val) != 4:
+        pytest.fail(
+            "--binary-search requires exactly 4 arguments: "
+            f"<min_multiplier> <max_multiplier> <drop_rate%> <precision>, got {len(val)}: {val}"
+        )
+    return {
+        "min": val[0],
+        "max": val[1],
+        "drop_rate": val[2],
+        "precision": val[3],
+    }
 
 
 def return_filename(pcap_filename):
@@ -546,7 +582,6 @@ def setup_af_packet(request):
 
 
 def af_packet_get_queues_rx_descriptors(param_file, params):
-
     for parameter_path in params[-1].keys():
         af_packet_match = re.match(r"af-packet\[[0-9]+\].interface", parameter_path)
 

@@ -124,7 +124,7 @@ If you want to pass a flag to pytest directly, you can do so by adding it after 
 ### Environment variables
 
 Optionally you can create a `.env` file with default variables, so that you don't have to fill out the flags on every run of pytests.
-The file will look like this: 
+The file will look like this:
 
 ```bash
 # Mandatory flags
@@ -159,7 +159,7 @@ and that setting `DEFAULT_TESTS` will prevent you from doing so.
 
 # Quick run: run a single test function for 20s with rules
 ./pytest_start.sh -s dpdk-test2 -d http_simple -t 20 -tg trex -p 0000:05:00.0 /
-	-p1 0000:65:00.0 -p2 0000:65:00.0 -f rules
+        -p1 0000:65:00.0 -p2 0000:65:00.0 -f rules
 
 # Multiple PCIe addresses
 ./pytest_start.sh -s claret -d http_simple -t 60 -p 0000:3b:00.0 -p 0000:af:00.0
@@ -228,6 +228,37 @@ need to change the VLAN that the packets are tagged with, pytest will create a n
 the new VLAN hardcoded. Another notable property of the test (and STL TRex in general) is
 that packets are sent at a constant rate. This means that there are 0.5 microseconds between
 packets at 1x multiplier (so ~2 million pps) and this doesn't change with packet size.
+
+---
+
+### Binary search
+
+This is a mode where we are testing maximum Suricata throughput and trying to converge on a defined
+packet drop rate. The search returns the highest found multiplier that is under or equal the specified
+allowed drop rate. If none is found, the run fails (raises `MultiplierNotFoundError`).
+
+Binary search is enabled by passing positional arguments to `--binary-search`. All four
+arguments are **required** — passing `-bs` with no arguments will result in an error.
+
+```bash
+--binary-search <mm> <xm> <dr> <pr>
+```
+
+| Position | Name | Type | Description |
+|---|---|---|---|
+| `mm` | min-multiplier | FLOAT | Lowest bound of the search range |
+| `xm` | max-multiplier | FLOAT | Highest bound of the search range |
+| `dr` | drop-rate | FLOAT | Target drop rate in % `<0, 100>` |
+| `pr` | precision | FLOAT | Exit when `(xm - mm) < precision` |
+
+Examples:
+```bash
+# All 4 required values:
+pytest ... --binary-search 0.0 10.0 1.0 0.05
+
+# Via pytest_start.sh:
+./pytest_start.sh ... -bs 0.0 10.0 1.0 0.05
+```
 
 ---
 
@@ -370,6 +401,34 @@ Progress is printed during execution:
 sending packets at 0.3 * default cps of .pcap
 ```
 
+### Binary search
+
+Binary search cycles through each `param.py` combination. The test execution flow is:
+
+1. **Setup** — Allocate hugepages, bind NIC, modify Suricata config.
+2. **Start Suricata** — Launch as a daemon on the remote host via SSH.
+3. **Start TRex** — Begin traffic at the current midpoint multiplier.
+4. **Wait** — Traffic runs for the configured duration (`--traffic-duration`).
+5. **Stop TRex** — Stop traffic generation.
+6. **Stop Suricata** — SIGTERM, fetch `eve.json` statistics.
+7. **Save results** — Record throughput and drop rate for this multiplier.
+8. **Converge** — Use the measured drop rate; adjust the search bounds (min or max) and repeat
+   from step 2 with a new midpoint until `(max - min) < precision`.
+
+Progress output will look similar to this:
+
+```
+[PROGRESS] ------ Cycle: 1 ------- [PROGRESS]
+[Progress] multiplier 5.0000 | param_file=param.py | params={'dpdk.interfaces[0].interface': '0000:05:00.0', 'dpdk.interfaces[0].mtu': 3000}
+Running command: suricata -c /tmp/suricata-1783523849/suricata.yaml -l /var/log/suricata -S /var/lib/suricata/rules/suricata.rules -D --dpdk --pidfile /var/run/suricata.pid
+[INFO] Drop rate: 72.7429%.
+
+[PROGRESS] ------ Cycle: 2 ------- [PROGRESS]
+...
+
+[FINISH] Maximum multiplier found is: 4.5000. | param_file=param.py | params={...}
+```
+
 ---
 
 ## 8. Defining new tests
@@ -409,9 +468,8 @@ for [STF](https://trex-tgn.cisco.com/trex/doc/trex_manual.html), [ASTF](https://
 or [STL](https://trex-tgn.cisco.com/trex/doc/trex_stateless.html).
 
 For **all modes** you will want to create a subclass of `BaseTrexClientManager` and pass a list with tuples of paths to individual
-pcaps and "weights" of the pcaps. See the comment under `BaseTrexClientManager` for the interpretations of weights in the 
-individual TRex modes. `BaseTrexClientManager` tries to provide usable defaults for all modes, but it should be easy to extend
-with exactly the functionality that you need.
+pcaps and "weights" of the pcaps. See the comment under `BaseTrexClientManager` for the interpretations of weights in the
+individual TRex modes.
 
 If you want to place files into a specific directory on your remote server you can redefine the `get_remote_data_path` function
 which gets called for every file that gets sent to the remote.

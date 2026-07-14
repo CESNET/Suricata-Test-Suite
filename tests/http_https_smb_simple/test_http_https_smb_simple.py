@@ -1,9 +1,9 @@
 """
-Author(s): Adam Kiripolský <adamkiripolsky.official@gmail.com>
-           Dávid Hanko <davihan11@gmail.com>
-           Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>
+Author(s):  Adam Kiripolský <adamkiripolsky.official@gmail.com>,
+            Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>,
+            Dávid Hanko <davihan11@gmail.com>
 
-Copyright: (C) 2023 CESNET, z.s.p.o.
+Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.
 
 Suricata testing module.
 """
@@ -13,13 +13,15 @@ import signal
 
 from typing import List
 from lbr_testsuite import trex
-from util.suricata_manager import Suricata_manager, SuriDown
-from util.suri_util import save_stats, TestInfo, RunInfo
+from util.suricata_manager import Suricata_manager
+from util.suri_util import TestInfo, get_drop_rate
 from assets.trex.traffic_profiles.http_https_smb_trex_profile.profile import (
     HttpHttpsSmbProfile,
 )
 from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
 from util.trex_util import TrexMode, get_trex_mode
+from util.multiplier_iterator import multiplier_iterator_create
+from util.test_runner import TrexTestRun
 
 
 @pytest.mark.parametrize(
@@ -44,8 +46,8 @@ def test_http_https_smb(
     rules_config: dict,
     get_target_mac: str,
     get_target_vlan: int,
+    b_search: dict | None,
 ):
-
     trex_manager: trex.TRexManager = trex.TRexManager(
         trex.TRexMachinesPool(trex_generators)
     )
@@ -80,30 +82,21 @@ def test_http_https_smb(
         get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name
     )
 
-    for idx, multiplier in enumerate(trex_multipliers, 1):
-        run_info = RunInfo(multiplier=multiplier)
+    tester = TrexTestRun(trex_client, suri_daemon, test_info, params, request)
 
+    mult_iter = multiplier_iterator_create(b_search, trex_multipliers)
+    for multiplier in mult_iter:
         print(
-            f"\n[Progress] multiplier {idx}/{len(trex_multipliers)} | param_file={request.config.getoption('--param-file')} | params={params}"
+            f"\n[Progress] multiplier {multiplier:.4f} | param_file={request.config.getoption('--param-file')} | params={params}"
         )
-        print(f"sending packets at {run_info.multiplier} * default cps of .pcap")
+        tester.execute(multiplier)
+        mult_iter.set_result(get_drop_rate())
 
-        trex_client.set_props(run_info.multiplier, test_info.traffic_duration)
-        trex_client.prepare()
-
-        try:
-            suri_daemon.start()
-        except SuriDown:
-            pytest.fail("Suricata is down.")
-
-        trex_client.run()
-
-        try:
-            suri_daemon.stop()
-        except SuriDown:
-            pytest.fail("Suricata was down.")
-
-        trex_client.update_runinfo(run_info)
-        run_info.suricata_start_delay = suri_daemon.last_start_delay
-
-        save_stats(params, request, test_info, run_info)
+    if mult_iter.result is not None:
+        print(
+            f"\n[FINISH] Maximum multiplier found is: {mult_iter.result:.4f}. | param_file={request.config.getoption('--param-file')} | params={params}\n\n"
+        )
+    else:
+        print(
+            f"\n[FINISH] Enumeration complete. | param_file={request.config.getoption('--param-file')} | params={params}\n\n"
+        )
