@@ -9,10 +9,13 @@ Provide iterator strategies (enumeration and binary search) for determining
 the next TRex traffic multiplier to test.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from typing import List
-
 from util.suri_util import MultiplierNotFoundError
+
+logger = logging.getLogger(__name__)
+
 
 
 class MultiplierIterator(ABC):
@@ -101,26 +104,26 @@ class BinarySearchMultiplierIterator(MultiplierIterator):
     def _validate_params(self):
         if self._precision <= 0:
             self._precision = 0.05
-            print("[WARNING] Binary search: Precision was <= 0. Setting to 0.05.")
+            logger.warning("[WARNING] Binary search: Precision was <= 0. Setting to 0.05.")
         if self._mini < 0:
             self._mini = 0
-            print(
+            logger.warning(
                 "[WARNING] Binary search: Minimum multiplier was below 0. Setting to 0."
             )
         if self._maxi < 0:
             self._maxi = 0
-            print(
+            logger.warning(
                 "[WARNING] Binary search: Maximum multiplier was below 0. Setting to 0."
             )
         if self._mini > self._maxi:
             self._mini, self._maxi = self._maxi, self._mini
-            print("[WARNING] Binary search: Max < min. Swapping values.")
+            logger.warning("[WARNING] Binary search: Max < min. Swapping values.")
         if self._target_drop_rate < 0:
             self._target_drop_rate = 0
-            print("[WARNING] Binary search: Drop rate is below 0%. Setting to 0%.")
+            logger.warning("[WARNING] Binary search: Drop rate is below 0%. Setting to 0%.")
         if self._target_drop_rate > 100:
             self._target_drop_rate = 100
-            print("[WARNING] Binary search: Drop rate is above 100%. Setting to 100%.")
+            logger.warning("[WARNING] Binary search: Drop rate is above 100%. Setting to 100%.")
 
     def __next__(self) -> float:
         if self._finished:
@@ -137,11 +140,11 @@ class BinarySearchMultiplierIterator(MultiplierIterator):
 
         self._cycle += 1
         self._current_multiplier = (self._mini + self._maxi) / 2
-        print(f"\n[PROGRESS] ------ Cycle: {self._cycle} ------- [PROGRESS]")
+        logger.progress(f"\n ------ Cycle: {self._cycle} ------- ")
         return self._current_multiplier
 
     def set_result(self, drop_rate: float):
-        print(f"[INFO] Drop rate: {drop_rate:.4f}%.")
+        logger.info(f"Drop rate: {drop_rate:.4f}%.")
 
         if drop_rate > self._target_drop_rate:
             self._maxi = self._current_multiplier

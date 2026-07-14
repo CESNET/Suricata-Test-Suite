@@ -4,6 +4,7 @@ Author(s): Matyáš Sedmidubský <sedmidubsky@cesnet.cz>
 Copyright: (C) 2026 CESNET, z.s.p.o.
 """
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, Self
@@ -12,6 +13,8 @@ from ruamel.yaml import YAML
 from yamlpath import Processor
 from yamlpath.enums.yamlvalueformats import YAMLValueFormats
 from yamlpath.wrappers import ConsolePrinter, NodeCoords
+
+logger = logging.getLogger(__name__)
 
 
 def update_recursively(destination: Dict, source: Dict, extend_lists=True) -> Dict:
@@ -52,7 +55,7 @@ class ConfigBuilder:
         for nc in self.__proc.get_nodes(key):
             exists = True
             if nc.node is not None:
-                print(nc.node)
+                logger.debug("Extending existing node at %s: %s", key, nc.node)
                 if isinstance(nc.node, list) and isinstance(value, list):
                     nc.node.extend(value)
                 elif isinstance(nc.node, dict) and isinstance(value, dict):
@@ -111,6 +114,7 @@ class ConfigBuilder:
         return self
 
     def build(self) -> str:
+        logger.debug("Writing configuration to %s", self.output)
         out = open(self.output, mode="w+")
         self.__yaml.dump(self.__proc.data, out)
 
@@ -118,6 +122,7 @@ class ConfigBuilder:
 
     def __init__(self, output: str, input: str | None = None) -> None:
         self.output = output
+        logger.debug("Loading configuration builder: output=%s input=%s", output, input)
 
         self.__yaml = YAML()
         self.__yaml.indent(sequence=4, offset=2)

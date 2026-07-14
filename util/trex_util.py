@@ -1,9 +1,10 @@
 """
-Author(s): Matyáš Sedmidubský <sedmidubsky@cesnet.cz>
+Author(s): Matyáš Sedmidubský <sedmidubsky@cesnet.cz> 
 
 Copyright: (C) 2026 CESNET, z.s.p.o.
 """
 
+import logging
 import os
 import subprocess
 from enum import Enum
@@ -12,6 +13,8 @@ from typing import Sequence, Tuple
 
 import pytest
 from lbr_testsuite.executable import executable, remote_executor
+
+logger = logging.getLogger(__name__)
 
 
 class TrexMode(Enum):
@@ -27,6 +30,7 @@ def send_to_remote(source: Path, hostname: str, destination: Path | None = None)
     if destination is None:
         destination = source
 
+    logger.debug("Sending %s to remote %s:%s", source, hostname, destination)
     subprocess.run(
         [
             "rsync",
@@ -41,6 +45,7 @@ def send_to_remote(source: Path, hostname: str, destination: Path | None = None)
 
 
 def mkdir_remote(dir: Path, hostname: str):
+    logger.debug("Creating remote directory %s on %s", dir, hostname)
     executor = remote_executor.RemoteExecutor(host=hostname, user=os.environ["USER"])
     mkdir = executable.Tool(
         f"mkdir -p '{str(dir)}' && chmod 777 '{str(dir)}'",
@@ -51,6 +56,9 @@ def mkdir_remote(dir: Path, hostname: str):
 
 
 def get_trex_mac(hostname: str, pci: str, trex_version: str):
+    logger.debug(
+        "Getting TRex MAC for %s on %s (version %s)", pci, hostname, trex_version
+    )
     executor = remote_executor.RemoteExecutor(host=hostname, user=os.environ["USER"])
     get_mac = executable.Tool(
         f"cd /opt/trex/{trex_version} && ./dpdk_setup_ports.py -t | grep {pci[5:]} | awk '{{print $8}}'",
@@ -61,6 +69,7 @@ def get_trex_mac(hostname: str, pci: str, trex_version: str):
 
     stdout = str(stdout).strip()
     assert len(stdout) == 17, f"Couldn't get MAC address for {pci}"
+    logger.debug("TRex MAC for %s: %s", pci, stdout)
     return stdout
 
 
@@ -99,6 +108,7 @@ def get_trex_mode(request, available_modes) -> TrexMode:
             raise ValueError(f"{forced_mode} is not a valid TRex mode")
 
         if mode_enum in available_modes:
+            logger.debug("Using forced TRex mode: %s", forced_mode)
             return mode_enum
         else:
             pytest.skip(f"{forced_mode} is not supported by this test")
@@ -110,8 +120,15 @@ def get_trex_mode(request, available_modes) -> TrexMode:
             raise ValueError(f"{preferred_mode} is not a valid TRex mode")
 
         if mode_enum in available_modes:
+            logger.debug("Using preferred TRex mode: %s", preferred_mode)
             return mode_enum
         else:
+            logger.debug(
+                "Preferred TRex mode %s unavailable, falling back to %s",
+                preferred_mode,
+                available_modes[0].name,
+            )
             return available_modes[0]
 
+    logger.debug("Using default TRex mode: %s", available_modes[0].name)
     return available_modes[0]

@@ -1,6 +1,9 @@
 import dpkt
+import logging
 import socket
 import os
+
+logger = logging.getLogger(__name__)
 
 
 def fix_checksums(eth):
@@ -42,8 +45,15 @@ def edit_vlan(pcap_filename, vlan_id):
     # zero padded vlan_id for predictability in .gitignore
     created_pcap_filename = pcap_filename.replace(".pcap", f".vlan{vlan_id:03}.pcap")
     if os.path.exists(created_pcap_filename):
-        # return already existing file
+        logger.debug("Using existing VLAN-tagged pcap: %s", created_pcap_filename)
         return created_pcap_filename
+
+    logger.debug(
+        "Creating VLAN-tagged pcap: %s -> %s (vlan_id=%d)",
+        pcap_filename,
+        created_pcap_filename,
+        vlan_id,
+    )
 
     with open(pcap_filename, "rb") as f_in, open(created_pcap_filename, "wb") as f_out:
         reader = dpkt.pcap.Reader(f_in)

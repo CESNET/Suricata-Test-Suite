@@ -5,6 +5,7 @@ Author(s): Adam Kiripolský <adamkiripolsky.official@gmail.com>
 Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.
 """
 
+import logging
 import os
 import time
 import os.path
@@ -12,6 +13,8 @@ import os.path
 from lbr_testsuite.executable import executable, remote_executor, ExecutableProcessError
 from util.suri_util import is_running
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 
 SURI_PID = "/var/run/suricata.pid"
@@ -87,6 +90,13 @@ class Suricata_manager:
             host=self.host_server, user=self.user
         )
 
+        logger.debug(
+            "Initializing Suricata manager: host=%s interface=%s capture_mode=%s",
+            self.host_server,
+            self.pcie_adress,
+            self.capture_mode,
+        )
+
         self.addfinalizer(request)
         self._set_log(log_dir)
         self._set_conf(request, conf_file)
@@ -124,6 +134,7 @@ class Suricata_manager:
             file_name: str = conf_file.split("/")[-1]
             remote_conf_file = f"{REMOTE_SURICATA_DIR}{file_name}"
 
+            logger.debug("Copying config %s to remote %s", conf_file, remote_conf_file)
             process_copy_conf_to_remote = executable.Tool(
                 f"rsync -a {conf_file} {self.user}@{self.host_server}:{REMOTE_SURICATA_DIR}"
             )
@@ -144,12 +155,14 @@ class Suricata_manager:
             file_name: str = rules_file.split("/")[-1]
             rules_file = f"{REMOTE_SURICATA_DIR}{file_name}"
 
+            logger.debug("Copying rules %s to remote %s", rules_file, rules_file)
             process_copy_rules_to_remote = executable.Tool(
                 f"rsync -a {rules_file} {self.user}@{self.host_server}:{REMOTE_SURICATA_DIR}"
             )
             process_copy_rules_to_remote.run()
 
         self.rules_file = rules_file
+        logger.debug("Using rules file: %s", self.rules_file)
 
     def get_path_to_binary(self) -> str:
         process_copy_conf_to_remote = executable.Tool(
@@ -161,7 +174,9 @@ class Suricata_manager:
         stdout, stderr = process_copy_conf_to_remote.run()
 
         assert stderr == "", "Could not find Suricata in PATH"
-        return stdout.strip()
+        binary_path = stdout.strip()
+        logger.debug("Suricata binary path: %s", binary_path)
+        return binary_path
 
     def _change_remote_dir_permissions(self):
         process_set_permissions = executable.Tool(
@@ -175,6 +190,7 @@ class Suricata_manager:
         process_set_permissions.run()
 
     def kill(self):
+        logger.debug("Killing Suricata process on %s", self.host_server)
         proccess_kill = executable.Tool(
             "pkill Suricata-Main || true", sudo=True, executor=self.host_executor
         )
@@ -188,7 +204,9 @@ class Suricata_manager:
         )
         suri = process_find_suri_process.run()[0]
         if not suri:
+            logger.error("Suricata process not found on %s", self.host_server)
             raise SuriDown
+        logger.debug("Suricata process found on %s", self.host_server)
 
     def wait_on_start(self) -> None:
         """Wait until Suricata is started, then continue"""
@@ -210,8 +228,10 @@ class Suricata_manager:
 
             except ExecutableProcessError:
                 can_continue = False
-                print("Suricata is not started yet")
+                logger.error("Suricata is not started yet")
                 self.is_alive()
+
+        logger.debug("Suricata started after %d seconds", self.last_start_delay)
 
     def _wait_for_clean_start(self) -> None:
         """Wait until previous instance of Suricata is fully shut down, then continue."""
@@ -228,11 +248,13 @@ class Suricata_manager:
             try:
                 stdout, _ = process_wait_on_end.run()
                 can_continue = not is_running(stdout)
-                print("Other Suricata instance is running, waiting for finish")
+                logger.debug("Other Suricata instance is running, waiting for finish")
                 self.kill()
 
             except ExecutableProcessError:
                 can_continue = True
+
+        logger.debug("Previous Suricata instance finished")
 
     def start(self) -> None:
         """Remove Suricata PID file and local and remote
@@ -280,12 +302,14 @@ class Suricata_manager:
         time.sleep(2)
 
         suri_cmd = f"suricata -c {self.conf_file} -l {self.log_dir} -S {self.rules_file} -D --{self.capture_mode} --pidfile {self._pid_file}"
-        print(f"Running command: {suri_cmd}")
+        logger.info("Starting Suricata: %s", suri_cmd)
         process_suri = executable.Tool(suri_cmd, sudo=True, executor=self.host_executor)
         process_suri.run()
 
         if not self.asynch:
             self.wait_on_start()
+        else:
+            logger.debug("Suricata started asynchronously")
 
     def stop(self) -> None:
         """Get PID of running Suricata and kill it with SIGTERM.
@@ -321,10 +345,17 @@ class Suricata_manager:
                     )
                     check_successful_end_process.run()
                 except ExecutableProcessError:
+                    logger.error("Suricata did not stop gracefully")
                     raise SuriDown
 
                 not_killed = False
 
+        logger.debug(
+            "Copying Suricata logs from %s:%s to local %s",
+            self.host_server,
+            self.log_dir,
+            self.local_tmp_stats,
+        )
         process_copy_result_to_local = executable.Tool(
             f"rsync -r {self.user}@{self.host_server}:{self.log_dir}/ {self.local_tmp_stats}/suricata-{self.user}/"
         )
