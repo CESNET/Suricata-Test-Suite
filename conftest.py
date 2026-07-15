@@ -26,15 +26,32 @@ from pathlib import Path
 from itertools import product
 from param import filter
 from util.config_builder import ConfigBuilder
+from util.log_util import get_logger, setup_logging
 
 TIME_STR = time.strftime("-".join(["%Y", "%m", "%d", "%H:%M"]))
 PATH_TO_ARTEFACTS: str = str(Path(__file__).parent / "results" / "artefacts")
+logger = get_logger(__name__)
 
 # alias lbr_trex_client.interactive.trex to trex for importing native TRex profiles
 sys.modules["trex"] = trex
 
 
 def pytest_addoption(parser):
+    parser.addoption(
+        "--suite-log-level",
+        type=str,
+        default="INFO",
+        action="store",
+        help=(
+            "Logging level for suite logger (DEBUG, INFO, PROGRESS, WARNING, ERROR, CRITICAL)."
+        ),
+    )
+    parser.addoption(
+        "--suite-log-file",
+        default=False,
+        action="store_true",
+        help=("Enable writing suite logs into results/artefacts/<run>/pytest.log."),
+    )
     parser.addoption(
         "--remote-host",
         type=str,
@@ -159,6 +176,27 @@ def pytest_addoption(parser):
     )
 
 
+def pytest_configure(config):
+    run_dir = Path(PATH_TO_ARTEFACTS) / TIME_STR
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    log_file = None
+    if config.getoption("--suite-log-file"):
+        log_file = str(run_dir / "pytest.log")
+
+    setup_logging(level=config.getoption("--suite-log-level"), log_file=log_file)
+    logger.info(
+        "Suite logging initialized: level=%s, file=%s",
+        config.getoption("--suite-log-level"),
+        log_file or "disabled",
+    )
+
+
+def pytest_runtest_logstart(nodeid, location):
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+
+
 def get_suri_executor(request) -> remote_executor.Executor:
     host_name = get_host_internal(request)
     user = os.environ["USER"]
@@ -184,6 +222,8 @@ def get_trex_internal(request):
 
 def pytest_generate_tests(metafunc):
     if "params" in metafunc.fixturenames:
+        print()
+        logger.info("Generating test parameters for %s", metafunc.function.__name__)
         params = []
         capture_modes_in_run = get_capture_modes_in_run(
             metafunc.config.getoption("--param-file")
@@ -215,6 +255,27 @@ def pytest_generate_tests(metafunc):
             dict(t) for t in {tuple(d.items()) for d in params}
         ]  # remove duplicate
         params = filters_apply(params)
+        logger.info(
+            "Generated %d parameter combinations for %s",
+            len(params),
+            metafunc.function.__name__,
+        )
+
+        # Log rule configs if the test is also parametrized with rules_config
+        if "rules_config" in metafunc.fixturenames:
+            n_rules = 0
+            for mark in metafunc.definition.iter_markers("parametrize"):
+                if mark.args and mark.args[0] == "rules_config":
+                    n_rules = len(mark.args[1])
+                    break
+            logger.info(
+                "Test %s: %d param combinations × %d rule configs = %d total variants",
+                metafunc.function.__name__,
+                len(params),
+                n_rules,
+                len(params) * n_rules,
+            )
+
         metafunc.parametrize("params", params)
 
 
@@ -297,16 +358,19 @@ def suri_interface_bind(request):
 @pytest.fixture(autouse=True)
 def bind(request):
     pcies_to_vfio = ["X710", "E810-C"]
+    interface, capture_mode = suri_interface_bind(request)
+    logger.info("Binding interface %s for capture mode %s", interface, capture_mode)
     binds_info = executable.Tool(
-        f"dpdk-devbind -s | grep {suri_interface_bind(request)[0]}",
+        f"dpdk-devbind -s | grep {interface}",
         sudo=True,
         executor=get_suri_executor(request),
     )
     pcie_info = str(binds_info.run())
     for pcie in pcies_to_vfio:
         if pcie in pcie_info:
+            logger.info("Binding %s to vfio-pci", interface)
             pcie_bind = executable.Tool(
-                f"modprobe vfio-pci; echo 1 | sudo tee /sys/module/vfio/parameters/enable_unsafe_noiommu_mode; dpdk-devbind.py -b vfio-pci {suri_interface_bind(request)[0]}",
+                f"modprobe vfio-pci; echo 1 | sudo tee /sys/module/vfio/parameters/enable_unsafe_noiommu_mode; dpdk-devbind.py -b vfio-pci {interface}",
                 sudo=True,
                 executor=get_suri_executor(request),
             )
@@ -342,6 +406,7 @@ def suricata_tmp_stats_path():
 
 @pytest.fixture(scope="function")
 def utilized_programs_info(request):
+    logger.info("Gathering utilized program versions")
     get_dpdk_version_process = executable.Tool(
         "pkg-config --modversion libdpdk", executor=get_suri_executor(request)
     )
@@ -351,15 +416,18 @@ def utilized_programs_info(request):
         "suricata --build-info | head -1", executor=get_suri_executor(request)
     )
     suricata_version, _ = get_suricata_version_process.run()
-    return {
+    versions = {
         "dpdk_version": dpdk_version.strip(),
         "suricata_version": " ".join(suricata_version.split()[4:]),
     }
+    logger.info("Program versions: %s", versions)
+    return versions
 
 
 @pytest.fixture(autouse=True)
 def assert_available_machines(request) -> None:
     host_pcie_adress = suri_interface_bind(request)[0]
+    logger.info("Checking PCIe interface availability: %s", host_pcie_adress)
 
     process_get_pcie_match = executable.Tool(
         f"lshw -c network | grep -c {host_pcie_adress} > /tmp/pcie_count",
@@ -409,10 +477,12 @@ def hugepages_allocated(request) -> bool:
 @pytest.fixture(scope="session", autouse=True)
 def check_hugepages(request) -> None:
     if hugepages_allocated(request):
-        print("Huge-pages already allocated")
+        logger.info("Huge-pages already allocated")
         return
 
-    print("Allocating huge-pages")
+    logger.info(
+        "Allocating huge-pages: %s", request.config.getoption("--suricata-hugepages")
+    )
     process_set_hugepages = executable.Tool(
         f"dpdk-hugepages.py --setup {request.config.getoption('--suricata-hugepages')}",
         sudo=True,
@@ -422,15 +492,18 @@ def check_hugepages(request) -> None:
     _, stderr = process_set_hugepages.run()
 
     assert stderr == "", f"Error while allocating hugepages: {stderr}"
+    logger.info("Huge-pages allocated successfully")
 
 
 def file_is_accessible(file):
+    logger.debug("Checking file accessibility: %s", file)
     assert isfile(file) and access(file, R_OK), (
         f"File {file} doesn't exist or isn't readable"
     )
 
 
 def import_module(param_file):
+    logger.debug("Importing parameter module: %s", param_file)
     module_name_of_param_file = param_file.split(".")[0]
     module_path = os.path.join(Path(__file__).parent, param_file)
     spec = importlib.util.spec_from_file_location(
@@ -454,6 +527,9 @@ def parametrize_args(param_file):
 
 
 def get_trex_multi(test_settings_file, server, pci, test_name):
+    logger.debug(
+        "Loading TRex multipliers: test=%s server=%s pci=%s", test_name, server, pci
+    )
     file_is_accessible(test_settings_file)
     with open(test_settings_file) as f:
         data = json.load(f)
@@ -470,10 +546,14 @@ def get_trex_multi(test_settings_file, server, pci, test_name):
         try:
             if re.compile(pattern, re.IGNORECASE).fullmatch(pci) is not None:
                 group = pattern
+                logger.debug("PCI %s matched regex pattern %s", pci, pattern)
                 break
         except re.error:
             if pci == pattern:
                 group = pattern
+                logger.debug(
+                    "PCI %s matched literal pattern %s (invalid regex)", pci, pattern
+                )
                 break
 
     if group is None:
@@ -491,6 +571,7 @@ def get_trex_multi(test_settings_file, server, pci, test_name):
         .input_value(data)
         .first()
     )
+    logger.debug("Loaded multipliers for %s: %s", pci, multipliers)
     return [float(x) for x in multipliers]
 
 
@@ -565,7 +646,7 @@ def make_combinations_for_af_packet(queues, rx_descriptors):
 
 @pytest.fixture()
 def determine_capture_mode(request, get_settings_file):
-    print(f"capture mode: {suri_interface_bind(request)[1]}")
+    logger.info("capture mode: %s", suri_interface_bind(request)[1])
 
 
 @pytest.fixture(autouse=True)
@@ -577,6 +658,12 @@ def setup_af_packet(request):
     ):
         interface = suri_interface_bind(request)[0]
         workers = current_parameters["queues"]
+        logger.info(
+            "Setting up af-packet interface %s: queues=%s rx_descriptors=%s",
+            interface,
+            workers,
+            current_parameters["rx_descriptors"],
+        )
         af_setup_prompts = [
             f"ip link set {interface} down",
             f"/usr/sbin/ethtool -L {interface} combined {workers}",

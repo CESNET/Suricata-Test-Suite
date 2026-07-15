@@ -11,6 +11,7 @@ Suricata testing module.
 
 import pytest
 import signal
+import logging
 
 from typing import List
 from lbr_testsuite import trex
@@ -21,6 +22,8 @@ from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
 from util.trex_util import TrexMode, get_trex_mode
 from util.multiplier_iterator import multiplier_iterator_create
 from util.test_runner import TrexTestRun
+
+logger = logging.getLogger(__name__)
 
 
 @pytest.mark.parametrize(
@@ -85,17 +88,19 @@ def test_web_50_sites(
 
     mult_iter = multiplier_iterator_create(b_search, trex_multipliers)
     for multiplier in mult_iter:
-        print(
-            f"\n[Progress] multiplier {multiplier:.4f} | param_file={request.config.getoption('--param-file')} | params={params}"
+        print()
+        logger.progress(
+            f"multiplier {multiplier:.4f} | param_file={request.config.getoption('--param-file')} | params={params}"
         )
         tester.execute(multiplier)
         mult_iter.set_result(get_drop_rate())
+        logger.info("Run ended.")
 
     if mult_iter.result is not None:
-        print(
-            f"\n[FINISH] Maximum multiplier found is: {mult_iter.result:.4f}. | param_file={request.config.getoption('--param-file')} | params={params}\n\n"
+        logger.progress(
+            f"Maximum multiplier found is: {mult_iter.result:.4f}. | param_file={request.config.getoption('--param-file')} | params={params}\n\n"
         )
     else:
-        print(
-            f"\n[FINISH] Enumeration complete. | param_file={request.config.getoption('--param-file')} | params={params}\n\n"
+        logger.progress(
+            f"Enumeration complete. | param_file={request.config.getoption('--param-file')} | params={params}\n\n"
         )

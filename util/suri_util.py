@@ -10,6 +10,7 @@ SPDX-License-Identifier: BSD-3-Clause
 from dataclasses import dataclass, field
 import json
 import jq
+import logging
 import time
 import os.path
 
@@ -19,6 +20,8 @@ from file_read_backwards import FileReadBackwards
 from typing import List
 from pathlib import Path
 from shutil import copy as copy_content
+
+logger = logging.getLogger(__name__)
 
 
 class DropRateError(Exception):
@@ -255,6 +258,9 @@ def save_stats(params, request, test_info: TestInfo, run_info: RunInfo):
     aggregated_output_path = os.path.join(test_info.result_path, "aggregated.json")
 
     os.makedirs(Path(output_dir), exist_ok=True)
+    logger.debug(
+        "Saving stats for multiplier=%s to %s", run_info.multiplier, output_dir
+    )
 
     create_symlink_to_latest(test_info.result_path)
 
@@ -286,6 +292,10 @@ def create_symlink_to_latest(result_path: str):
 def save_suricata_stats(request, output_dir: str):
     suricata_tmp_stats_path: str = f"/tmp/suricata-{os.environ['USER']}/"
 
+    logger.debug(
+        "Saving Suricata stats from %s to %s", suricata_tmp_stats_path, output_dir
+    )
+
     if request.config.getoption("--collect-artifacts"):
         suricata_tmp_eve_path: str = os.path.join(suricata_tmp_stats_path, "eve.json")
         suricata_output_eve_path = os.path.join(output_dir, "eve.json")
@@ -299,6 +309,8 @@ def save_suricata_stats(request, output_dir: str):
 
 
 def save_trex_stats(run_info: RunInfo, output_dir: str):
+    logger.debug("Saving TRex stats to %s", output_dir)
+
     if run_info.trex_client_stats is not None:
         trex_client_output_path: str = os.path.join(output_dir, "trex_client.json")
         with open(trex_client_output_path, "w") as trex_client_stats_file:
@@ -317,6 +329,8 @@ def save_aggregated_stats(
     aggregated_output_path: str,
     params,
 ):
+    logger.debug("Saving aggregated stats to %s", aggregated_output_path)
+
     out_params = params.copy()
     out_params.update(
         dpdk_version=test_info.utilized_programs_info.get("dpdk_version", "undefined")
@@ -351,6 +365,8 @@ def save_aggregated_stats(
 
 
 def save_test_info(request, test_info: TestInfo, aggregated_output_path: str) -> None:
+    logger.debug("Saving test info to %s", aggregated_output_path)
+
     cmd_comment: str = request.config.getoption("--test-comment")
     output: dict = {
         "event": "test_info",
@@ -373,14 +389,16 @@ def save_test_info(request, test_info: TestInfo, aggregated_output_path: str) ->
 
 
 def print_stats(trex_stats: List[int], suri_stats: List[str]):
-    print("\n")
+    logger.info("Comparing TRex tx and Suricata rx stats")
     for i in range(len(trex_stats)):
-        print("Trex tx: ", trex_stats[i], "Suri rx: ", suri_stats[i])
+        logger.info("Trex tx: %s | Suri rx: %s", trex_stats[i], suri_stats[i])
 
 
 def make_graph(
     trx_multipliers: List[float], suri_stats: List[str], trx_stat: List[int]
 ):
+    logger.debug("Generating performance graph")
+
     path_to_graph_directory: str = os.path.join(
         Path(__file__).parent, "results", "graphs"
     )
