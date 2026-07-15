@@ -1,9 +1,10 @@
 """
-Author(s):  Adam Kiripolský <adamkiripolsky.official@gmail.com>,
-            Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>,
-            Dávid Hanko <davihan11@gmail.com>
+Author(s):  Adam Kiripolský <adam.kiripolsky@cesnet.cz>
+            Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>
+            Dávid Hanko <david.hanko@cesnet.cz>
 
-Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.
+Copyright: (C) 2026 CESNET, z.s.p.o.
+SPDX-License-Identifier: BSD-3-Clause
 
 Suricata testing module.
 """

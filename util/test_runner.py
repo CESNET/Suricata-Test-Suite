@@ -1,7 +1,8 @@
 """
-Author(s):  Dávid Hanko <davihan11@gmail.com>
+Author(s):  Dávid Hanko <david.hanko@cesnet.cz>
 
 Copyright: (C) 2026 CESNET, z.s.p.o.
+SPDX-License-Identifier: BSD-3-Clause
 
 Test runner class for Suricata tests.
 

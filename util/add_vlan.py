@@ -1,3 +1,8 @@
+"""
+Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.
+SPDX-License-Identifier: BSD-3-Clause
+"""
+
 import dpkt
 import socket
 import os

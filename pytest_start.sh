@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+#
+# Author(s):    Adam Kiripolský <adam.kiripolsky@cesnet.cz>
+#               Dávid Hanko <david.hanko@cesnet.cz>
+#               Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>
+#
+# Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.
+# SPDX-License-Identifier: BSD-3-Clause
+
+
 
 set -xe
 

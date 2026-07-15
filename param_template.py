@@ -1,4 +1,11 @@
-# Parameter template example
+"""
+Author(s):  Adam Kiripolský <adam.kiripolsky@cesnet.cz>
+
+Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.
+SPDX-License-Identifier: BSD-3-Clause
+
+Parameter template example
+"""
 
 suri_yaml_params = {
     "dpdk.interfaces[0].interface": ["PCIEaddr"],

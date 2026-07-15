@@ -1,4 +1,10 @@
 #!/usr/bin/python3
+"""
+Author(s):  Adam Kiripolský <adam.kiripolsky@cesnet.cz>
+
+Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.
+SPDX-License-Identifier: BSD-3-Clause
+"""
 
 import sys
 import json

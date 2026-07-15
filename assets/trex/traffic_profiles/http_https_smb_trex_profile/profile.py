@@ -1,3 +1,10 @@
+"""
+Author(s):  Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>
+
+Copyright: (C) 2026 CESNET, z.s.p.o.
+SPDX-License-Identifier: BSD-3-Clause
+"""
+
 from pathlib import Path
 
 import lbr_trex_client.interactive.trex.astf.trex_astf_profile as astf_profile

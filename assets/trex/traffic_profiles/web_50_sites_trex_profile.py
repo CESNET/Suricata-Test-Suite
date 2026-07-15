@@ -1,3 +1,12 @@
+"""
+Author(s):  Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>
+
+Copyright: (C) 2026 CESNET, z.s.p.o.
+SPDX-License-Identifier: BSD-3-Clause
+
+TRex profile template for use in Suricata-Test-Suite
+"""
+
 from pathlib import Path
 
 from util.config_builder import ConfigBuilder

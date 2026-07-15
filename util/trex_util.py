@@ -1,7 +1,8 @@
 """
-Author(s): Matyáš Sedmidubský <sedmidubsky@cesnet.cz>
+Author(s):  Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>
 
 Copyright: (C) 2026 CESNET, z.s.p.o.
+SPDX-License-Identifier: BSD-3-Clause
 """
 
 import os

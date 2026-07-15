@@ -3,6 +3,8 @@ name = "suricata-test-suite"
 version = "0.1.0"
 description = "Pytest-based performance tests for Suricata IDS/IPS"
 readme = "README.md"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "ansible==9.13.0",
