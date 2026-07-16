@@ -1,5 +1,6 @@
 """
-Author(s):  Adam Kiripolský <adam.kiripolsky@cesnet.cz>
+Author(s):  Eliška Červinková <eliska.cervinkova@cesnet.cz>
+            Adam Kiripolský <adam.kiripolsky@cesnet.cz>
             Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>
 
 Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.

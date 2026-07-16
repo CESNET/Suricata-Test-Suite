@@ -1,5 +1,6 @@
 """
-Author(s):  Adam Kiripolský <adam.kiripolsky@cesnet.cz>
+Author(s):  Eliška Červinková <eliska.cervinkova@cesnet.cz>
+            Adam Kiripolský <adam.kiripolsky@cesnet.cz>
             Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>
             Dávid Hanko <david.hanko@cesnet.cz>
 

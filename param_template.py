@@ -1,5 +1,5 @@
 """
-Author(s):  Adam Kiripolský <adam.kiripolsky@cesnet.cz>
+Author(s):  Eliška Červinková <eliska.cervinkova@cesnet.cz>
 
 Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.
 SPDX-License-Identifier: BSD-3-Clause
