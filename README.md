@@ -16,7 +16,8 @@ mirrored network traffic.
   - [7. Test execution flow](#7-test-execution-flow)
   - [8. Defining new tests](#8-defining-new-tests)
   - [9. Results and graphs](#9-results-and-graphs)
-  - [10. Troubleshooting](#10-troubleshooting)
+  - [10. Logging](#10-logging)
+  - [11. Troubleshooting](#11-troubleshooting)
 
 ---
 
@@ -147,6 +148,7 @@ DEFAULT_TESTS="http_simple nfs_smb_simple" # all tests by default
 DEFAULT_TIME=300
 DEFAULT_HEATUP=0
 DEFAULT_HUGEPAGES="6G"
+LOGLEVEL="INFO"
 ```
 
 Note that an empty string ("") in `-d` (or `DEFAULT_TESTS`) is a valid value for running all tests
@@ -187,7 +189,7 @@ python3.11 -m pytest \
     --remote-host="claret" \
     --param-file="param.py" \
     --traffic-duration=300 \
-    -s --log-level=info \
+    -s --suite-log-level=info \
     "tests/http_simple"
 ```
 
@@ -514,7 +516,42 @@ Graphs are saved to `results/graphs/`.
 
 ---
 
-## 10. Troubleshooting
+## 10. Logging
+
+This test suite uses structured logging for debugging, monitoring, and troubleshooting. Logs are emitted to both the console and optional log files, with configurable verbosity levels.
+
+### Log Levels
+
+| Level      | Description                                                                 |
+|------------|-----------------------------------------------------------------------------|
+| **DEBUG**  | Detailed internal information (e.g., variable values, algorithm steps).     |
+| **INFO**   | General operational messages (e.g., test start/completion, authentication). |
+| **PROGRESS**| High-level progress updates (e.g., cycle numbers, iteration counts).       |
+| **WARNING**| Non-critical issues that don't stop execution but may need attention.       |
+| **ERROR**  | Serious problems that prevent a specific operation from completing.         |
+| **CRITICAL**| Severe errors that may cause the entire test suite to fail.                |
+
+### Configuration
+
+Logging behavior is controlled via command-line options:
+
+- `--suite-log-level <LEVEL>`  
+  Set the minimum level shown on console (default: `INFO`).  
+  Example: `--suite-log-level=DEBUG` shows all messages including debug details.
+
+- `--suite-log-file`  
+  Enable writing logs to file. When set, logs are saved to:  
+  `results/artefacts/<timestamp>/pytest.log`
+
+### Tips
+
+- Keep console at `INFO` for clean progress tracking during normal runs.
+- Always check `pytest.log` for full debug history if tests fail unexpectedly.
+- Library loggers (paramiko, fabric, invoke, faker) are automatically suppressed to avoid duplicate output.
+
+---
+
+## 11. Troubleshooting
 
 | Problem | Solution |
 |---------|----------|

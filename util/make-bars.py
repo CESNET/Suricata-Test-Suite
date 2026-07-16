@@ -5,11 +5,14 @@ SPDX-License-Identifier: BSD-3-Clause
 
 import sys
 import json
+import logging
 import numpy as np
 import argparse
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
 import time
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -51,20 +54,20 @@ def process_result_line(stats, graph_bar):
         / (result_from_row.tx_time * BITS_PER_GIGABIT)
     )
 
-    print(f"Received packets total: {result_from_row.rx_packets}")
-    print(f"Transmitted packets total: {result_from_row.tx_packets}")
+    logger.info("Received packets total: %s", result_from_row.rx_packets)
+    logger.info("Transmitted packets total: %s", result_from_row.tx_packets)
 
     dropped_pkts: int = result_from_row.tx_packets - (
         result_from_row.rx_packets + result_from_row.rx_rte_flow_filtered_packets
     )
-    print(f"Dropped packets total: {dropped_pkts}")
+    logger.info("Dropped packets total: %s", dropped_pkts)
 
     packet_loss = (
         100 * dropped_pkts / result_from_row.tx_packets
         if result_from_row.tx_packets != 0
         else 0
     )
-    print(f"Packet loss in percentages: {packet_loss}")
+    logger.info("Packet loss in percentages: %s", packet_loss)
     if packet_loss < THRESHOLD:
         graph_bar.max_speed = max_speed
         return True
@@ -137,7 +140,7 @@ def main(files, network_cards):
         graph_bars.append(graph_bar)
         with open(file, "r") as json_file:
             first = True
-            print(f"Input file: {file}")
+            logger.debug("Input file: %s", file)
 
             for line in json_file:
                 agg_dict: dict = json.loads(line)
@@ -153,6 +156,7 @@ def main(files, network_cards):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
     # warning -> the order of json matters -> without rules, Suricata software rules, rte_flow rules FIRT MELANOX, THEN ICE
     if len(sys.argv) < 1:
         raise SyntaxError("Insufficient arguments.")
@@ -163,5 +167,5 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--network_cards", required=True)
     parser.add_argument("files", nargs="+")
     args = parser.parse_args()
-    print(args.files, args.network_cards)
+    logger.info("Files: %s | Network cards: %s", args.files, args.network_cards)
     main(args.files, args.network_cards)  # everything without the name of the program

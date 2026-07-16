@@ -8,6 +8,7 @@ TRex profile template for use in Suricata-Test-Suite
 """
 
 import copy
+import logging
 import os
 import warnings
 from pathlib import Path
@@ -39,6 +40,8 @@ from util.trex_util import (
     mkdir_remote,
     send_to_remote,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class BaseTrexClientManager:
@@ -86,6 +89,13 @@ class BaseTrexClientManager:
         if len(self.pcaps) < 1:
             raise ValueError("self.pcaps must contain at least one pcap")
 
+        logger.info(
+            "Initializing TRex client manager: mode=%s vlan_id=%d pcaps=%s",
+            self.mode.name,
+            self.vlan_id,
+            [p[0] for p in self.pcaps],
+        )
+
         trex_gen = request.config.getoption("--trex-generator")
         trex_host = trex_gen[0].split(",")
         trex_hostname = trex_host[0]
@@ -116,7 +126,7 @@ class BaseTrexClientManager:
                 parent_dir_path = self.get_remote_data_path(Path(""))
                 mkdir_remote(parent_dir_path, trex_hostname)
 
-                print("Uploading pcaps. This might take a while.")
+                logger.info("Uploading pcaps to TRex server. This might take a while.")
                 for i, pcap in enumerate(self.pcaps):
                     pcap_path = self.PCAP_PATH_PREFIX / pcap[0]
                     if target_vlan != 0:
@@ -150,6 +160,7 @@ class BaseTrexClientManager:
                 parent_dir_path = self.get_remote_data_path(Path(""))
                 mkdir_remote(parent_dir_path, trex_hostname)
 
+                logger.info("Uploading pcaps to TRex server. This might take a while.")
                 os.makedirs("tmp", exist_ok=True)
                 config = ConfigBuilder(
                     "tmp/trex_cfg.yaml",
@@ -173,7 +184,6 @@ class BaseTrexClientManager:
                 self.remote_stf_config = config_remote_path
                 send_to_remote(config_path, trex_hostname, config_remote_path)
 
-                print("Uploading pcaps. This might take a while.")
                 for i, pcap in enumerate(self.pcaps):
                     pcap_path = self.PCAP_PATH_PREFIX / pcap[0]
                     if target_vlan != 0:
@@ -301,12 +311,19 @@ class BaseTrexClientManager:
         """
         self.multiplier = multiplier
         self.duration = duration
+        logger.debug(
+            "TRex traffic properties set: multiplier=%s duration=%s",
+            multiplier,
+            duration,
+        )
 
     def prepare(self) -> None:
         """
         Reset TRex instances and load profiles.
         Will raise a ValueError if `multiplier` and `duration` haven't been set with `set_props`
         """
+
+        logger.debug("Preparing TRex traffic: mode=%s", self.mode.name)
 
         # pcaps are sent to the server in `__init__`
 
@@ -338,6 +355,14 @@ class BaseTrexClientManager:
         Optionally only start traffic with `blocking=False`.
         Will raise a ValueError if `multiplier` and `duration` haven't been set with `set_props`
         """
+
+        logger.debug(
+            "Starting TRex traffic: mode=%s multiplier=%s duration=%s blocking=%s",
+            self.mode.name,
+            self.multiplier,
+            self.duration,
+            blocking,
+        )
 
         if self.multiplier is None or self.duration is None:
             raise ValueError(
@@ -394,6 +419,8 @@ class BaseTrexClientManager:
         if blocking:
             self.wait_on_traffic()
 
+        logger.debug("TRex traffic finished")
+
     def wait_on_traffic(self) -> None:
         match self.mode:
             case TrexMode.STL:
@@ -413,6 +440,7 @@ class BaseTrexClientManager:
                 self.stop()
 
     def stop(self) -> None:
+        logger.info("Stopping TRex traffic: mode=%s", self.mode.name)
         match self.mode:
             case TrexMode.STL:
                 self.stl_generator.stop()
@@ -428,6 +456,7 @@ class BaseTrexClientManager:
         """
         Alternative to `get_stats` so that the API is independent of the used TRex mode.
         """
+        logger.debug("Updating run info from TRex stats")
         match self.mode:
             case TrexMode.STL:
                 run_info.trex_server_stats = self.get_stats()
