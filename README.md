@@ -16,6 +16,7 @@ mirrored network traffic.
   - [7. Test execution flow](#7-test-execution-flow)
   - [8. Defining new tests](#8-defining-new-tests)
   - [9. Results and graphs](#9-results-and-graphs)
+    - [Generic counter visualisation (`util/visualize.py`)](#generic-counter-visualisation-utilvisualizepy)
   - [10. Logging](#10-logging)
   - [11. Troubleshooting](#11-troubleshooting)
 
@@ -513,6 +514,55 @@ python3.11 util/make-graphs.py results/run1/aggregated_results.json results/run2
 ```
 
 Graphs are saved to `results/graphs/`.
+
+### Generic counter visualisation (`util/visualize.py`)
+
+To plot arbitrary Suricata counter values from `eve.json`/`eve-stats.json` files
+over time, use `util/visualize.py`. It reads JSON-lines files, keeps only the
+`stats` event records, optionally filters them with a universal jq filter, and
+plots the requested counter paths (using `.stats.uptime` as the x-axis by
+default).
+
+```bash
+python3.11 util/visualize.py -i stats.json -p flow.memuse -p stream.memuse -f 'uptime > 30'
+```
+
+Options:
+
+| Option | Description |
+|---|---|
+| `-i, --input FILE` | Input `eve.json`/`eve-stats.json` file (JSON-lines). May be given multiple times; each file is plotted as its own labelled series (labelled by the parent directory name, e.g. `multiplier_2.5`). |
+| `-p, --path PATH` | Counter path relative to `.stats`, e.g. `flow.memuse` or `capture.dpdk.imissed`. May be given multiple times. |
+| `-f, --filter JQ` | Universal jq filter applied to each `.stats` record (e.g. `uptime > 30`). Records that don't match are skipped. A leading bare identifier is treated as a field access (so `uptime > 30` works like `.uptime > 30`). |
+| `-x, --x-axis PATH` | Counter path used as the x-axis. Default: `uptime`. Ignored in `--by-multiplier` mode, where the x-axis is always the traffic multiplier. |
+| `-o, --output FILE` | Save the plot to a file (e.g. `graph.png`) instead of showing it. |
+| `--delta` | Plot the difference between consecutive samples instead of the raw cumulative value. Suricata stats counters are cumulative (they only increase), so plotting them directly yields a straight line; `--delta` shows the per-interval rate instead. |
+| `--by-multiplier` | Plot a summary value of each counter against the traffic multiplier instead of against uptime. The input must be a test directory containing `multiplier_*/eve-stats.json` files. For each multiplier the counter's final value is plotted (or, with `--delta`, its peak per-interval rate). |
+| `--no-secondary-axis` | Disable the automatic secondary Y axis (keep all series on a single axis). |
+| `--secondary-axis-threshold FRACTION` | Fraction of the combined Y range below which a series is moved to a secondary Y axis. Default: `0.1` (10%). |
+| `--title TEXT` | Optional plot title. |
+| `-v, --verbose` | Enable debug logging. |
+
+Example comparing two multipliers (each plotted as its own labelled series):
+
+```bash
+python3.11 util/visualize.py \
+    -i results/run1/multiplier_2.5/eve-stats.json \
+    -i results/run1/multiplier_5.0/eve-stats.json \
+    -p flow.memuse -p flow.active \
+    -f 'uptime > 5' \
+    -o memuse.png
+```
+
+Example plotting the throughput curve (peak packet rate) against the multiplier:
+
+```bash
+python3.11 util/visualize.py \
+    -i results/run1/test_http_simple \
+    -p decoder.pkts \
+    --by-multiplier --delta \
+    -o throughput.png
+```
 
 ---
 
