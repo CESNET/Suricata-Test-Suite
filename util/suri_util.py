@@ -63,6 +63,11 @@ class RunInfo:
     trex_client_stats: dict | None = None
     trex_server_stats: dict | None = None
     trex_pretty_stats: dict = field(default_factory=dict)
+    # actual transmit time; 0 means "not measured" (fall back to traffic_duration)
+    transmit_seconds: float = 0.0
+    # TRex transmit counters sampled at the start of the measurement window
+    trex_tx_packets_at_start: int = 0
+    trex_tx_bytes_at_start: int = 0
 
 
 def get_last_stats_line(file: str) -> str:
@@ -144,48 +149,6 @@ def get_rx_bytes_until(file: str, until: int) -> int:
 
     try:
         return int(output["total"]) - int(output["missed"]) * int(output["average"])
-    except ValueError:
-        return 0
-
-
-def get_total_packets_until(file: str, until: int) -> int:
-    try:
-        json_file = open(file, "r")
-    except FileNotFoundError:
-        return 0
-
-    json_loaded = json_file.read()
-    output = (
-        jq.compile(
-            f"select(.stats.uptime >= {until})| [.] | first| .stats.decoder.pkts"
-        )
-        .input_text(json_loaded)
-        .first()
-    )
-
-    try:
-        return int(output)
-    except ValueError:
-        return 0
-
-
-def get_total_bytes_until(file: str, until: int) -> int:
-    try:
-        json_file = open(file, "r")
-    except FileNotFoundError:
-        return 0
-
-    json_loaded = json_file.read()
-    output = (
-        jq.compile(
-            f"select(.stats.uptime >= {until})| [.] | first| .stats.decoder.bytes"
-        )
-        .input_text(json_loaded)
-        .first()
-    )
-
-    try:
-        return int(output)
     except ValueError:
         return 0
 
@@ -337,10 +300,17 @@ def save_aggregated_stats(
     )
     eve_stats_path = os.path.join(suri_stats_path, "eve-stats.json")
     delay_time = test_info.heatup_duration + run_info.suricata_start_delay
+    # use the measured burst time when available, else the configured duration
+    if run_info.transmit_seconds > 0:
+        transmit_seconds = run_info.transmit_seconds
+    elif test_info.traffic_duration < 0:
+        transmit_seconds = 0
+    else:
+        transmit_seconds = test_info.traffic_duration
     output: dict = {
         "event": "test_results",
         "trex_multiplier": run_info.multiplier,
-        "transmit_seconds": test_info.traffic_duration,
+        "transmit_seconds": transmit_seconds,
         "suricata_rx_packets": get_rx_packets_from_file(
             eve_stats_path, skip=delay_time
         ),
@@ -349,13 +319,9 @@ def save_aggregated_stats(
             eve_stats_path, skip=delay_time
         ),
         "trex_tx_packets": run_info.trex_pretty_stats["opackets"]
-        - get_total_packets_until(
-            eve_stats_path, test_info.heatup_duration + run_info.suricata_start_delay
-        ),
+        - run_info.trex_tx_packets_at_start,
         "trex_tx_bytes": run_info.trex_pretty_stats["obytes"]
-        - get_total_bytes_until(
-            eve_stats_path, test_info.heatup_duration + run_info.suricata_start_delay
-        ),
+        - run_info.trex_tx_bytes_at_start,
         "parameters": out_params,
     }
 

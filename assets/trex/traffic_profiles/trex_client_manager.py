@@ -7,28 +7,35 @@ SPDX-License-Identifier: BSD-3-Clause
 TRex profile template for use in Suricata-Test-Suite
 """
 
-import copy
 import logging
 import os
+import re
 import warnings
 from pathlib import Path
 from time import sleep, time
-from typing import Dict, Literal, Self
+from typing import Callable, Dict, Literal, NamedTuple, Self
 
 from lbr_testsuite.trex import (
     TRexAdvancedStateful,
     TRexManager,
     TRexStateless,
 )
-from lbr_trex_client.interactive.trex.astf.trex_astf_client import ASTFClient
-from lbr_trex_client.interactive.trex.stl.trex_stl_client import STLClient
-from lbr_trex_client.stf.trex_stf_lib.trex_client import CTRexClient
-from pytest import FixtureRequest
 
-# these need to be imported exactly like this
-# otherwise they fail type introspection
+# NOTE: import the TRex client classes via the `trex` alias (set up in
+# conftest.py as `sys.modules["trex"] = lbr_trex_client.interactive.trex`).
+# lbr_testsuite.trex imports them the same way, so using the alias path here
+# guarantees the classes are identical to the ones the TRex clients check
+# against in `isinstance()` (e.g. STLClient.add_streams). Importing from
+# `lbr_trex_client.interactive.trex.*` instead would create distinct class
+# objects and break those checks.
 from trex.astf import trex_astf_profile
+from trex.astf.trex_astf_client import ASTFClient
 from trex.common.trex_exceptions import TRexError
+from trex.stl.trex_stl_client import STLClient
+from trex.stl.trex_stl_packet_builder_scapy import STLPktBuilder
+from trex.stl.trex_stl_streams import STLStream, STLTXSingleBurst
+from trex_client import CTRexClient
+from pytest import FixtureRequest
 
 from util.add_vlan import edit_vlan
 from util.config_builder import ConfigBuilder
@@ -37,11 +44,19 @@ from util.trex_util import (
     PcapList,
     TrexMode,
     get_trex_mac,
+    merge_pcaps,
     mkdir_remote,
     send_to_remote,
 )
 
 logger = logging.getLogger(__name__)
+
+
+class Pcap(NamedTuple):
+    """A pcap to replay, with its relative weight (cps / divisor)."""
+
+    path: Path
+    weight: int | float
 
 
 class BaseTrexClientManager:
@@ -82,9 +97,26 @@ class BaseTrexClientManager:
         target_vlan: int = 0,
         mode=TrexMode.ASTF,
     ) -> None:
-        self.pcaps = copy.deepcopy(self.profile_pcaps)
+        # self.pcaps holds (absolute local Path, weight) Pcap objects; the
+        # class-level `pcaps`/`profile_pcaps` are (relative str, weight).
+        self.pcaps: list[Pcap] = [
+            Pcap(self.PCAP_PATH_PREFIX / p[0], p[1]) for p in self.profile_pcaps
+        ]
         self.mode = mode
         self.vlan_id = target_vlan
+        self.request = request
+        self.multiplier: float | None = None
+
+        # warn once per profile instead of on every run()/multiplier iteration
+        if (
+            request.config.getoption("--trex-stl-burst") is not None
+            and mode is not TrexMode.STL
+        ):
+            logger.warning(
+                "--trex-stl-burst is only supported in STL mode (current mode: %s). "
+                "Ignoring it and using the regular duration-based replay.",
+                mode.name,
+            )
 
         if len(self.pcaps) < 1:
             raise ValueError("self.pcaps must contain at least one pcap")
@@ -93,7 +125,7 @@ class BaseTrexClientManager:
             "Initializing TRex client manager: mode=%s vlan_id=%d pcaps=%s",
             self.mode.name,
             self.vlan_id,
-            [p[0] for p in self.pcaps],
+            [p.path for p in self.pcaps],
         )
 
         trex_gen = request.config.getoption("--trex-generator")
@@ -103,17 +135,6 @@ class BaseTrexClientManager:
 
         match self.mode:
             case TrexMode.STL:
-                # STL mode can only send one pcap at a time so it either
-                # needs to merge them together or replay them one by one
-                # currently it replays them one by one
-
-                # if STL mode gets used more in the future this should create a merged
-                # pcap that is at least a few seconds long, since we currently loop over
-                # the specified pcaps, which means that TRex can finish the PCAP in a
-                # few miliseconds and then wait for significantly longer until it receives
-                # a request to play another PCAP
-                # this would also allow for mixing the PCAPs together
-
                 self.stl_generator: TRexStateless = manager.request_stateless(request)
                 self.trex_version = (
                     self.stl_generator.get_handler().get_server_version()["version"]
@@ -126,14 +147,34 @@ class BaseTrexClientManager:
                 parent_dir_path = self.get_remote_data_path(Path(""))
                 mkdir_remote(parent_dir_path, trex_hostname)
 
-                logger.info("Uploading pcaps to TRex server. This might take a while.")
-                for i, pcap in enumerate(self.pcaps):
-                    pcap_path = self.PCAP_PATH_PREFIX / pcap[0]
-                    if target_vlan != 0:
-                        pcap_path = Path(edit_vlan(str(pcap_path), target_vlan))
-                        self.pcaps[i] = (pcap_path.name, pcap[1])
-                    pcap_remote_path = self.get_remote_data_path(pcap_path)
-                    send_to_remote(pcap_path, trex_hostname, pcap_remote_path)
+                # Merge first, then apply the VLAN edit to the single final pcap.
+                if len(self.pcaps) > 1:
+                    local_paths = [p.path for p in self.pcaps]
+                    weights = [float(p.weight) for p in self.pcaps]
+                    # Use a per-test unique name so sequential/parallel runs don't collide.
+                    merged_name = (
+                        "stl_merged_"
+                        + re.sub(r"[^A-Za-z0-9_.-]", "_", self.request.node.nodeid)
+                        + ".pcap"
+                    )
+                    merged_path = merge_pcaps(
+                        local_paths,
+                        weights,
+                        self.PCAP_PATH_PREFIX / merged_name,
+                    )
+                    # effective divisor = sum of weights (sources interleaved at combined rate)
+                    self.pcaps = [Pcap(merged_path, sum(weights))]
+
+                if target_vlan != 0:
+                    pcap = self.pcaps[0]
+                    vlan_path = Path(edit_vlan(str(pcap.path), target_vlan))
+                    self.pcaps[0] = Pcap(vlan_path, pcap.weight)
+
+                assert len(self.pcaps) == 1
+                logger.info("Uploading pcap to TRex server. This might take a while.")
+                pcap = self.pcaps[0]
+                pcap_remote_path = self.get_remote_data_path(pcap.path)
+                send_to_remote(pcap.path, trex_hostname, pcap_remote_path)
 
             case TrexMode.ASTF:
                 self.client: TRexAdvancedStateful = manager.request_stateful(
@@ -185,10 +226,10 @@ class BaseTrexClientManager:
                 send_to_remote(config_path, trex_hostname, config_remote_path)
 
                 for i, pcap in enumerate(self.pcaps):
-                    pcap_path = self.PCAP_PATH_PREFIX / pcap[0]
+                    pcap_path = pcap.path
                     if target_vlan != 0:
                         pcap_path = Path(edit_vlan(str(pcap_path), target_vlan))
-                        self.pcaps[i] = (pcap_path.name, pcap[1])
+                    self.pcaps[i] = Pcap(pcap_path, pcap.weight)
                     pcap_remote_path = self.get_remote_data_path(pcap_path)
                     send_to_remote(pcap_path, trex_hostname, pcap_remote_path)
 
@@ -234,10 +275,10 @@ class BaseTrexClientManager:
             default_ip_gen=ip_gen,
             cap_list=[
                 trex_astf_profile.ASTFCapInfo(
-                    file=str(Path(__file__).parent / "pcaps" / cap),
-                    cps=int(multiplier * cps),
+                    file=str(pcap.path),
+                    cps=int(multiplier * pcap.weight),
                 )
-                for cap, cps in self.pcaps
+                for pcap in self.pcaps
             ],
             default_c_glob_info=client_global_info,
             default_s_glob_info=server_global_info,
@@ -276,9 +317,7 @@ class BaseTrexClientManager:
 
         for i, pcap in enumerate(self.pcaps):
             trex_search_dir = f"/opt/trex/{self.trex_version}/"
-            remote_pcap = str(
-                self.get_remote_data_path(self.PCAP_PATH_PREFIX / pcap[0])
-            )
+            remote_pcap = str(self.get_remote_data_path(pcap.path))
             assert remote_pcap.startswith(trex_search_dir), (
                 f"TRex searches for PCAPs in {trex_search_dir} and this cannot be changed"
             )
@@ -288,7 +327,7 @@ class BaseTrexClientManager:
                 f"[0].cap_info[{i}]",
                 {
                     "name": remote_pcap,
-                    "cps": pcap[1],
+                    "cps": pcap.weight,
                     "ipg": 100,
                     "rtt": 100,
                     "w": 1,
@@ -349,11 +388,24 @@ class BaseTrexClientManager:
             case TrexMode.STF:
                 pass
 
-    def run(self, blocking=True) -> None:
+    def run(
+        self,
+        blocking=True,
+        heatup: int = 0,
+        on_measurement_start: Callable[[], None] | None = None,
+        run_info: RunInfo | None = None,
+    ) -> None:
         """
         Start traffic from TRex and block until finished.
         Optionally only start traffic with `blocking=False`.
         Will raise a ValueError if `multiplier` and `duration` haven't been set with `set_props`
+
+        `heatup` (seconds) and `on_measurement_start` let the caller sample
+        TRex's own transmit counters at the start of the measurement window
+        (after the heatup period), while traffic is actually running.
+
+        `run_info` (optional) is used to record the actual wall-clock time TRex
+        spent transmitting (e.g. the burst duration in STL exact-count mode).
         """
 
         logger.debug(
@@ -369,36 +421,70 @@ class BaseTrexClientManager:
                 "you need to specify multiplier and duration with `set_props`"
             )
 
+        def _mark_measurement_start() -> None:
+            if not blocking:
+                return
+            if heatup > 0:
+                sleep(heatup)
+            if on_measurement_start is not None:
+                on_measurement_start()
+
+        burst_start: float | None = None
+
         match self.mode:
             case TrexMode.STL:
                 client: STLClient = self.stl_generator.get_handler()
+                burst = self.request.config.getoption("--trex-stl-burst")
 
-                # the pcaps can end early, so we loop through them
-                start = time()
-                elapsed = 0
-                pcap_index = 0
-                while elapsed < self.duration:
-                    pcap = self.pcaps[pcap_index]
-                    try:
-                        client.push_remote(
-                            pcap_filename=str(self.get_remote_data_path(Path(pcap[0]))),
-                            ports=[0],
-                            ipg_usec=self.BASE_IPG_USEC / pcap[1],
-                            speedup=self.multiplier,
-                            count=1,
-                            duration=int(self.duration - elapsed),
+                if burst is not None:
+                    base_pps, total_pkts = burst
+
+                    # scale rate by multiplier (binary search varies speed); packet count stays fixed
+                    pps = base_pps * self.multiplier
+
+                    if len(self.pcaps) != 1:
+                        raise ValueError(
+                            "--trex-stl-burst requires a single (merged) pcap; "
+                            f"got {len(self.pcaps)}"
                         )
-                    except TRexError:
-                        # wait if port was not cleared yet
-                        sleep(0.05)
+                    pcap_path = str(self.pcaps[0].path)
+                    stream = STLStream(
+                        name="S0",
+                        packet=STLPktBuilder(pkt=pcap_path),
+                        mode=STLTXSingleBurst(pps=pps, total_pkts=total_pkts),
+                    )
+
+                    client.add_streams([stream], ports=[0])
+                    # burst stops on its own; -1 (unlimited) so it's never truncated at low multipliers
+                    burst_start = time()
+                    client.start(ports=[0], duration=-1)
+                    _mark_measurement_start()
+                else:
+                    pcap = self.pcaps[0]
+                    start = time()
+                    elapsed = 0
+                    while elapsed < self.duration:
+                        try:
+                            client.push_remote(
+                                pcap_filename=str(self.get_remote_data_path(pcap.path)),
+                                ports=[0],
+                                ipg_usec=self.BASE_IPG_USEC / pcap.weight,
+                                speedup=self.multiplier,
+                                count=1,
+                                duration=int(self.duration - elapsed),
+                            )
+                        except TRexError:
+                            # wait if port was not cleared yet
+                            sleep(0.05)
                         elapsed = time() - start
-                        continue
-                    elapsed = time() - start
-                    pcap_index = (pcap_index + 1) % len(self.pcaps)
+                        if elapsed >= heatup and on_measurement_start is not None:
+                            on_measurement_start()
+                            on_measurement_start = None
 
             case TrexMode.ASTF:
                 self.server.start()
                 self.client.start(duration=self.duration)
+                _mark_measurement_start()
 
             case TrexMode.STF:
                 if self.duration < 30:
@@ -415,9 +501,14 @@ class BaseTrexClientManager:
                     m=str(self.multiplier),
                     cfg=str(self.remote_stf_config),
                 )
+                _mark_measurement_start()
 
         if blocking:
             self.wait_on_traffic()
+
+        # measure actual burst duration (burst stops on its own once count is sent)
+        if burst_start is not None and run_info is not None:
+            run_info.transmit_seconds = time() - burst_start
 
         logger.debug("TRex traffic finished")
 
@@ -461,30 +552,45 @@ class BaseTrexClientManager:
             case TrexMode.STL:
                 run_info.trex_server_stats = self.get_stats()
                 run_info.trex_client_stats = None
-
-                run_info.trex_pretty_stats["opackets"] = run_info.trex_server_stats[
-                    "total"
-                ]["opackets"]
-                run_info.trex_pretty_stats["obytes"] = run_info.trex_server_stats[
-                    "total"
-                ]["obytes"]
             case TrexMode.ASTF:
                 run_info.trex_client_stats = self.client.get_stats()
                 run_info.trex_server_stats = self.server.get_stats()
-
-                run_info.trex_pretty_stats["opackets"] = int(
-                    run_info.trex_server_stats["total"]["opackets"]
-                ) + int(run_info.trex_client_stats["total"]["opackets"])
-                run_info.trex_pretty_stats["obytes"] = int(
-                    run_info.trex_server_stats["total"]["obytes"]
-                ) + int(run_info.trex_client_stats["total"]["obytes"])
             case TrexMode.STF:
                 run_info.trex_server_stats = self.get_stats()
                 run_info.trex_client_stats = None
 
-                trex_data = run_info.trex_server_stats["trex-global"]["data"]
-                run_info.trex_pretty_stats["opackets"] = trex_data["m_total_tx_pkts"]
-                run_info.trex_pretty_stats["obytes"] = trex_data["m_total_tx_bytes"]
+        run_info.trex_pretty_stats["opackets"] = self.get_tx_packets()
+        run_info.trex_pretty_stats["obytes"] = self.get_tx_bytes()
+
+    def get_tx_packets(self) -> int:
+        """Current cumulative TRex transmit packet count."""
+        match self.mode:
+            case TrexMode.STL:
+                return int(self.stl_generator.get_stats()["total"]["opackets"])
+            case TrexMode.ASTF:
+                return int(self.server.get_stats()["total"]["opackets"]) + int(
+                    self.client.get_stats()["total"]["opackets"]
+                )
+            case TrexMode.STF:
+                data = self.stf_generator.get_result_obj().get_latest_dump()[
+                    "trex-global"
+                ]["data"]
+                return int(data["m_total_tx_pkts"])
+
+    def get_tx_bytes(self) -> int:
+        """Current cumulative TRex transmit byte count."""
+        match self.mode:
+            case TrexMode.STL:
+                return int(self.stl_generator.get_stats()["total"]["obytes"])
+            case TrexMode.ASTF:
+                return int(self.server.get_stats()["total"]["obytes"]) + int(
+                    self.client.get_stats()["total"]["obytes"]
+                )
+            case TrexMode.STF:
+                data = self.stf_generator.get_result_obj().get_latest_dump()[
+                    "trex-global"
+                ]["data"]
+                return int(data["m_total_tx_bytes"])
 
     def get_stats(self, role: Literal["server"] | Literal["client"] = "server") -> Dict:
         assert role in ("server", "client")
@@ -501,3 +607,24 @@ class BaseTrexClientManager:
 
             case TrexMode.STF:
                 return self.stf_generator.get_result_obj().get_latest_dump()
+
+
+class BaseAdHocTrex(BaseTrexClientManager, pcaps=[]):
+    """
+    Base class for ad-hoc TRex profiles that take their pcaps at runtime
+    (rather than at class definition time).
+
+    All ad-hoc profiles share the same `__init__` so they behave consistently.
+    """
+
+    def __init__(
+        self,
+        pcaps: PcapList,
+        manager: TRexManager,
+        request: FixtureRequest,
+        target_mac: str,
+        target_vlan: int = 0,
+        mode: TrexMode = TrexMode.STL,
+    ):
+        self.profile_pcaps = pcaps
+        super().__init__(manager, request, target_mac, target_vlan, mode=mode)

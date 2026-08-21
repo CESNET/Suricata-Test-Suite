@@ -31,7 +31,7 @@ class TestRun:
     def _before_traffic(self, multiplier: float, duration: int):
         """Prepare TRex before suricata starts (e.g. reset, set_props)."""
 
-    def _run_traffic(self, multiplier: float, duration: int):
+    def _run_traffic(self, multiplier: float, duration: int, run_info: RunInfo):
         """Generate traffic. Suricata is already running."""
         raise NotImplementedError("subclass must implement _run_traffic")
 
@@ -49,15 +49,15 @@ class TestRun:
         except SuriDown:
             pytest.fail("Suricata is down.")
 
+        run_info = RunInfo(multiplier=multiplier)
         try:
-            self._run_traffic(multiplier, duration)
+            self._run_traffic(multiplier, duration, run_info)
         finally:
             try:
                 self.suri_daemon.stop()
             except SuriDown:
                 pytest.fail("Suricata was down.")
 
-        run_info = RunInfo(multiplier=multiplier)
         self._collect_stats(run_info)
         run_info.suricata_start_delay = self.suri_daemon.last_start_delay
         save_stats(self.params, self.request, self.test_info, run_info)
@@ -81,8 +81,18 @@ class TrexTestRun(TestRun):
         self.trex_client.set_props(multiplier, duration)
         self.trex_client.prepare()
 
-    def _run_traffic(self, multiplier: float, duration: int):
-        self.trex_client.run()
+    def _run_traffic(self, multiplier: float, duration: int, run_info: RunInfo):
+        # sample TRex's own counters at the measurement-window start
+        def on_measurement_start():
+            run_info.trex_tx_packets_at_start = self.trex_client.get_tx_packets()
+            run_info.trex_tx_bytes_at_start = self.trex_client.get_tx_bytes()
+
+        self.trex_client.run(
+            blocking=True,
+            heatup=self.test_info.heatup_duration,
+            on_measurement_start=on_measurement_start,
+            run_info=run_info,
+        )
 
     def _collect_stats(self, run_info: RunInfo):
         self.trex_client.update_runinfo(run_info)
