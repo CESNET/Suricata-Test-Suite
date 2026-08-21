@@ -8,7 +8,7 @@
                         "server_name": "claret",
                         "pci": [
                             {
-                                "pcie_addr": "0000:(3b|af|19):00.1",
+                                "pcie_addr": "0000:(3b|af|19):00\\.\\d",
                                 "trex_multipliers": [
                                     0.2,
                                     0.6,
@@ -29,7 +29,7 @@
                         "server_name": "dpdk-test2",
                         "pci": [
                             {
-                                "pcie_addr": "0000:05:00.1",
+                                "pcie_addr": "0000:05:00\\.\\d",
                                 "trex_multipliers": [
                                     0.2,
                                     0.6,
@@ -47,7 +47,7 @@
                         "server_name": "claret",
                         "pci": [
                             {
-                                "pcie_addr": "0000:(3b|af|19):00.1",
+                                "pcie_addr": "0000:(3b|af|19):00\\.\\d",
                                 "trex_multipliers": [
                                     0.2,
                                     0.6,
@@ -68,7 +68,7 @@
                         "server_name": "dpdk-test2",
                         "pci": [
                             {
-                                "pcie_addr": "0000:05:00.1",
+                                "pcie_addr": "0000:05:00\\.\\d",
                                 "trex_multipliers": [
                                     0.2,
                                     0.6,
