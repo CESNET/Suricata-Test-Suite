@@ -75,7 +75,7 @@ def test_http_simple(
         utilized_programs_info=utilized_programs_info,
     )
 
-    trex_mode = get_trex_mode(request, [TrexMode.ASTF, TrexMode.STF])
+    trex_mode = get_trex_mode(request, [TrexMode.ASTF, TrexMode.STF, TrexMode.STL])
     trex_client = HttpProfile(
         trex_manager, request, get_target_mac, get_target_vlan, mode=trex_mode
     )

@@ -11,3 +11,6 @@ results
 
 # all pcaps with the format <name>.vlan___.pcap == pcaps with modified vlans
 assets/trex/traffic_profiles/**/*.vlan???.pcap
+
+# merged pcaps generated at runtime by trex_client_manager.py (STL mode)
+assets/trex/traffic_profiles/pcaps/stl_merged*.pcap

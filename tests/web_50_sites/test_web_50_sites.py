@@ -74,7 +74,7 @@ def test_web_50_sites(
         utilized_programs_info=utilized_programs_info,
     )
 
-    trex_mode = get_trex_mode(request, [TrexMode.STF])
+    trex_mode = get_trex_mode(request, [TrexMode.STF, TrexMode.STL])
     trex_client = Web50SitesProfile(
         trex_manager, request, get_target_mac, get_target_vlan, mode=trex_mode
     )

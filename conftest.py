@@ -35,6 +35,9 @@ TIME_STR = time.strftime("-".join(["%Y", "%m", "%d", "%H:%M"]))
 PATH_TO_ARTEFACTS: str = str(Path(__file__).parent / "results" / "artefacts")
 logger = get_logger(__name__)
 
+# Defaults for --trex-stl-burst when it is given without arguments: (PPS, PACKET_COUNT).
+STL_BURST_DEFAULTS: Tuple[float, int] = (200_000, 10_000_000)
+
 # alias lbr_trex_client.interactive.trex to trex for importing native TRex profiles
 sys.modules["trex"] = trex
 
@@ -60,6 +63,48 @@ def _log_level_type(value: str) -> str | int:
     raise argparse.ArgumentTypeError(
         f"invalid log level: {value!r} (expected a number or one of: {valid})"
     )
+
+
+def _fmt_thousands(value: int) -> str:
+    """Format an integer with space thousands separators (e.g. 200000 -> '200 000')."""
+    return f"{value:,}".replace(",", " ")
+
+
+def _validate_stl_burst_option(config) -> None:
+    """Validate ``--trex-stl-burst`` and store the typed ``(float, int)`` tuple.
+
+    Raises ``pytest.UsageError`` on malformed input before any fixture runs.
+    """
+    raw = config.getoption("--trex-stl-burst")
+    if raw is None:
+        return
+
+    if not raw:
+        parsed = STL_BURST_DEFAULTS
+    elif len(raw) != 2:
+        raise pytest.UsageError(
+            "--trex-stl-burst accepts 0 or 2 arguments "
+            "(<PPS> <PACKET_COUNT>), got "
+            f"{len(raw)}"
+        )
+    else:
+        try:
+            pps = float(raw[0])
+            total_pkts = int(raw[1])
+        except ValueError:
+            raise pytest.UsageError(
+                f"--trex-stl-burst expects numeric <PPS> <PACKET_COUNT>, got {raw!r}"
+            )
+        if pps <= 0:
+            raise pytest.UsageError(f"--trex-stl-burst PPS must be > 0, got {pps}")
+        if total_pkts <= 0:
+            raise pytest.UsageError(
+                "--trex-stl-burst PACKET_COUNT must be a positive integer, "
+                f"got {total_pkts}"
+            )
+        parsed = (pps, total_pkts)
+
+    config.option.trex_stl_burst = parsed
 
 
 def pytest_addoption(parser):
@@ -187,6 +232,21 @@ def pytest_addoption(parser):
             "Run tests with the specified trex mode if available. If not, skip test."
         ),
     )
+    parser.addoption(
+        "--trex-stl-burst",
+        nargs="*",
+        type=str,
+        default=None,
+        action="store",
+        metavar=("PPS", "PACKET_COUNT"),
+        help=(
+            "In STL mode, send a fixed burst of PACKET_COUNT packets at PPS "
+            "instead of replaying for the configured duration. With no "
+            f"arguments, defaults to {_fmt_thousands(int(STL_BURST_DEFAULTS[0]))} "
+            f"PPS and {_fmt_thousands(STL_BURST_DEFAULTS[1])} packets. Only "
+            "applies to STL mode; ignored (with a warning) for other modes."
+        ),
+    )
 
     parser.addoption(
         "--binary-search",
@@ -197,13 +257,15 @@ def pytest_addoption(parser):
         help=(
             "Enable binary search mode for finding optimal Suricata speed. "
             "Accepts exactly 4 positional arguments: "
-            "<min_multiplier> <max_multiplier> <drop_rate%> <precision>. "
+            "<min_multiplier> <max_multiplier> <drop_rate%%> <precision>. "
             "Example: --binary-search 0.0 10.0 1.0 0.05"
         ),
     )
 
 
 def pytest_configure(config):
+    _validate_stl_burst_option(config)
+
     run_dir = Path(PATH_TO_ARTEFACTS) / TIME_STR
     run_dir.mkdir(parents=True, exist_ok=True)
 

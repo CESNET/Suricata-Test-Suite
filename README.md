@@ -79,6 +79,14 @@ The TRex traffic generator has support for different ways of generating traffic:
     - packet templates can be as simple as a static packet being sent on repeat or can implement different
       rules using the TRex field engine to modify the packet before it's sent
   - replaying PCAPs is limited to one per port and doesn't support dynamically modifying them
+  - when multiple PCAPs are supplied, they are **merged into a single PCAP** (packets interleaved
+    proportionally to their weights) and replayed together, instead of being replayed one after another
+  - STL also supports an **exact packet count** variant: instead of replaying a PCAP for a fixed
+    duration, it sends a **fixed, exact number of packets**. This is enabled with the
+    `--trex-stl-burst [<PPS> <PACKET_COUNT>]` option and is useful for
+    deterministic tests where you want to send precisely `N` packets at a given rate. The packet
+    count stays fixed, but the send rate (`pps`) is scaled by the traffic multiplier, so it works
+    with multiplier enumeration and binary search. See [STL exact-count mode](#stl-exact-count-mode) below.
 - STF mode *(stateful)*
   - mixture of the ASTF and STL modes
   - one TRex instance sending out traffic based on a profile
@@ -195,6 +203,14 @@ python3.11 -m pytest \
 
 For all available pytest options, see `conftest.py::pytest_addoption` or run `python3.11 -m pytest --help`. For rules/norules testing, use '-k "norules"' or '-k "rules and not norules"'
 
+To force a specific TRex mode, use `--force-trex-mode` (skips tests that don't support it) or
+`--prefer-trex-mode` (falls back to the test default if unavailable). Valid modes are `astf`,
+`stf`, and `stl`. For example:
+
+```bash
+python3.11 -m pytest ... --force-trex-mode stl --trex-stl-burst 100 1000 "tests/http_simple"
+```
+
 ## 4. Available tests
 
 Each tests subdirectory (e.g., `http_simple/`, `https_simple/`) is a test suite. Every suite has `_norules` (baseline,
@@ -234,6 +250,39 @@ need to change the VLAN that the packets are tagged with, pytest will create a n
 the new VLAN hardcoded. Another notable property of the test (and STL TRex in general) is
 that packets are sent at a constant rate. This means that there are 0.5 microseconds between
 packets at 1x multiplier (so ~2 million pps) and this doesn't change with packet size.
+
+---
+
+### STL exact-count mode
+
+The STL exact-count variant sends a **fixed, exact number of packets** at a fixed rate. Unlike
+the regular STL mode (which replays a PCAP for a fixed duration), it sends precisely `N` packets
+and then stops.
+
+This is useful for deterministic tests where you want to control exactly how many packets
+reach Suricata. It is enabled by passing `--trex-stl-burst [<PPS> <PACKET_COUNT>]` (or
+`-sb [<PPS> <COUNT>]` in `pytest_start.sh`) while running in STL mode. If the option is set
+while a non-STL mode is active, it is ignored with a warning.
+
+The packet rate and count are given together as a single option. With no arguments, the
+defaults are used (200000 PPS, 10000000 packets):
+
+| `pytest_start.sh` flag | pytest option | Description |
+|---|---|---|
+| `-sb [<PPS> <COUNT>]` | `--trex-stl-burst [<PPS> <PACKET_COUNT>]` | Send a fixed burst of `PACKET_COUNT` packets at `PPS` in STL mode (defaults: 200000 PPS, 10000000 packets) |
+
+The packet count stays fixed, but the send rate (`pps`) is scaled by the traffic multiplier
+(`effective_pps = PPS * multiplier`), so exact-count works with both multiplier
+enumeration and binary search.
+
+Examples:
+```bash
+# Send 1000 packets at 100 pps using STL exact-count mode
+./pytest_start.sh -s claret -d http_simple -fm stl -f norules -sb 100 1000
+
+# Use the default burst (200000 pps, 10000000 packets)
+./pytest_start.sh -s claret -d http_simple -fm stl -f norules -sb
+```
 
 ---
 
@@ -495,7 +544,13 @@ trex and you can either modify this or create a completely new `ConfigBuilder` i
 For examples see `realistic_traffic_trex_profile.py`
 
 **STL profiles** are defined only with a list of PCAPs and should really only be used as a simple fallback, but STF is preferred
-and can be used in the same situations as STL.
+and can be used in the same situations as STL. When multiple PCAPs are supplied, the base class merges them into a single
+interleaved PCAP (packets mixed proportionally to their weights) so they are replayed together rather than one after another.
+
+STL also supports an **exact packet count** variant: when the `--trex-stl-burst [<PPS> <PACKET_COUNT>]`
+option is set, the base class's `run()` sends a fixed number of packets instead of the
+duration-based replay. This is enabled with `--trex-stl-burst` (or `-sb` in
+`pytest_start.sh`) while running in STL mode.
 
 You are not limited to one TRex mode per profile. For example you can define a TRex profile that has a native ASTF TRex config, which is used for
 the ASTF mode and `get_stf_profile` uses it to create an STF profile dynamically.

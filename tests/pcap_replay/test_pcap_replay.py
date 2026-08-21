@@ -17,6 +17,7 @@ from typing import List
 from lbr_testsuite import trex
 from util.suricata_manager import Suricata_manager
 from util.suri_util import TestInfo, get_drop_rate
+from util.trex_util import TrexMode, get_trex_mode
 from assets.trex.traffic_profiles.ad_hoc_stl_trex_profile import AdHocStlProfile
 from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
 from util.multiplier_iterator import multiplier_iterator_create
@@ -74,8 +75,15 @@ def test_pcap_replay(
         utilized_programs_info=utilized_programs_info,
     )
 
+    # only STL is supported here; get_trex_mode skips the test if another mode is forced
+    trex_mode = get_trex_mode(request, [TrexMode.STL])
     trex_client = AdHocStlProfile(
-        [(get_path_to_pcap, 1)], trex_manager, request, get_target_mac, get_target_vlan
+        [(get_path_to_pcap, 1)],
+        trex_manager,
+        request,
+        get_target_mac,
+        get_target_vlan,
+        mode=trex_mode,
     )
 
     test_variant_name = f"{suri_conf.test_name}_{rules_config['name']}"

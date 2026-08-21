@@ -32,6 +32,7 @@ usage(){
   echo "-pc   | --pcap [PATH] to specify the pcap file to send to Suricata. Also sets --defined-tests to *only* pcap_replay"
   echo "-pm   | --prefer-trex-mode [MODE] to suggest a mode for TRex. If unavailable tests use their defaults."
   echo "-fm   | --force-trex-mode [MODE] to force a TRex mode. If unavailable tests get skipped. Overrides -pm"
+  echo "-sb   | --trex-stl-burst [PPS] [COUNT] to send a fixed burst of COUNT packets at PPS in STL mode. Defaults: 200 000 PPS, 10 000 000 packets"
   echo "-sh   | --suricata-hugepages [SIZE] to specify how much RAM to allocate in hugepages. Default is 6G."
   echo "-sl   | --suite-log-level [LEVEL] to set the logging level for the test suite: a name (DEBUG, INFO, PROGRESS, WARNING, ERROR, CRITICAL) or a number (e.g. 25). Default: INFO"
   echo "-sf   | --suite-log-file to enable writing suite logs to results/artefacts/<run>/pytest.log"
@@ -85,6 +86,20 @@ while [ "$#" -gt 0 ]; do
 	-pc | --pcap) pcap_replay="$2"; shift 2 ;;
     -pm | --prefer-trex-mode) trex_mode_flags+="--prefer-trex-mode $2 "; shift 2 ;;
     -fm | --force-trex-mode) trex_mode_flags+="--force-trex-mode $2 "; shift 2 ;;
+    -sb | --trex-stl-burst)
+        extra_args+=(--trex-stl-burst)
+        if [[ "$2" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+            extra_args+=("$2")
+            shift
+            if [[ ! "$2" =~ ^[0-9]+$ ]]; then
+                echo "Error: --trex-stl-burst (-sb) expects 0 or 2 arguments: <PPS> <COUNT> (COUNT must be an integer)" >&2
+                exit 1
+            fi
+            extra_args+=("$2")
+            shift
+        fi
+        shift
+        ;;
     -sh | --suricata-hugepages) hugepages="$2"; shift 2 ;;
     -h | --help) usage ;;
     -bsh | --binary-search-help) binary_search_usage ;;
