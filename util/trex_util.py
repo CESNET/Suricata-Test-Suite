@@ -27,6 +27,65 @@ class TrexMode(Enum):
 PcapList = Sequence[Tuple[str, int | float]]
 
 
+def _packet_generator(
+    pcap_paths: list[Path],
+    per_round: list[int],
+    restart: bool,
+):
+    """
+    Yields packets from `pcap_paths` following weighted round-robin rules.
+
+    Each source emits `per_round[i]` packets per round. When `restart` is
+    True, an exhausted source is restarted from the beginning so it keeps
+    contributing proportionally for as long as the merge runs; otherwise it
+    is marked empty and skipped. Stops once every source is empty.
+
+    Readers are opened here and always closed (including on error), so the
+    caller does not need to manage them.
+    """
+    from scapy.all import PcapReader
+
+    readers = []
+    try:
+        for p in pcap_paths:
+            readers.append(PcapReader(str(p)))
+    except Exception:
+        for r in readers:
+            r.close()
+        raise
+    iters = [iter(r) for r in readers]
+    empty = [False] * len(iters)
+    try:
+        while not all(empty):
+            for si, it in enumerate(iters):
+                if empty[si]:
+                    continue
+                for _ in range(per_round[si]):
+                    try:
+                        pkt = next(it)
+                    except StopIteration:
+                        if not restart:
+                            # no cap: merge each source exactly once
+                            empty[si] = True
+                            break
+                        # restart exhausted stream to keep it contributing proportionally
+                        readers[si].close()
+                        readers[si] = PcapReader(str(pcap_paths[si]))
+                        iters[si] = iter(readers[si])
+                        # read the rest of this round from the fresh reader
+                        it = iters[si]
+                        try:
+                            pkt = next(it)
+                        except StopIteration:
+                            # empty pcap: nothing to contribute, skip it
+                            empty[si] = True
+                            break
+                    yield pkt
+    finally:
+        for r in readers:
+            r.close()
+
+
 def merge_pcaps(
     pcap_paths: list[Path],
     weights: list[float],
@@ -53,7 +112,7 @@ def merge_pcaps(
 
     Returns `out_path` with the merged pcap written.
     """
-    from scapy.all import PcapReader, PcapWriter
+    from scapy.all import PcapWriter
 
     if not pcap_paths:
         raise ValueError("pcap_paths must not be empty")
@@ -76,56 +135,15 @@ def merge_pcaps(
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    readers = []
-    try:
-        for p in pcap_paths:
-            readers.append(PcapReader(str(p)))
-    except Exception:
-        # close any readers opened before the failure so we don't leak
-        # file descriptors / keep pcaps locked
-        for r in readers:
-            r.close()
-        raise
-    iters = [iter(r) for r in readers]
-    # sources that are empty (or become empty on restart) are skipped entirely
-    empty = [False] * len(iters)
     total = 0
-    try:
-        with PcapWriter(str(out_path), append=False, sync=True) as writer:
-            # stop on packet cap or when every source is exhausted (avoid infinite loop)
-            while (max_packets is None or total < max_packets) and not all(
-                empty[si] for si in range(len(iters))
-            ):
-                for si, it in enumerate(iters):
-                    if empty[si]:
-                        continue
-                    for _ in range(per_round[si]):
-                        if max_packets is not None and total >= max_packets:
-                            break
-                        try:
-                            pkt = next(it)
-                        except StopIteration:
-                            if max_packets is None:
-                                # no cap: merge each source exactly once
-                                empty[si] = True
-                                break
-                            # restart exhausted stream to keep it contributing proportionally
-                            readers[si].close()
-                            readers[si] = PcapReader(str(pcap_paths[si]))
-                            iters[si] = iter(readers[si])
-                            # read the rest of this round from the fresh reader
-                            it = iters[si]
-                            try:
-                                pkt = next(it)
-                            except StopIteration:
-                                # empty pcap: nothing to contribute, skip it
-                                empty[si] = True
-                                break
-                        writer.write(pkt)
-                        total += 1
-    finally:
-        for r in readers:
-            r.close()
+    with PcapWriter(str(out_path), append=False, sync=True) as writer:
+        for pkt in _packet_generator(
+            pcap_paths, per_round, restart=max_packets is not None
+        ):
+            if max_packets is not None and total >= max_packets:
+                break
+            writer.write(pkt)
+            total += 1
 
     logger.info(
         "Merged %d pcaps into %s (%d packets, weights=%s)",
