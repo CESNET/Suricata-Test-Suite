@@ -32,8 +32,7 @@ from trex.astf import trex_astf_profile
 from trex.astf.trex_astf_client import ASTFClient
 from trex.common.trex_exceptions import TRexError
 from trex.stl.trex_stl_client import STLClient
-from trex.stl.trex_stl_packet_builder_scapy import STLPktBuilder
-from trex.stl.trex_stl_streams import STLStream, STLTXSingleBurst
+from trex.stl.trex_stl_streams import STLProfile, STLStream, STLTXSingleBurst
 from trex_client import CTRexClient
 from pytest import FixtureRequest
 
@@ -448,17 +447,49 @@ class BaseTrexClientManager:
                             f"got {len(self.pcaps)}"
                         )
                     pcap_path = str(self.pcaps[0].path)
-                    stream = STLStream(
-                        name="S0",
-                        packet=STLPktBuilder(pkt=pcap_path),
-                        mode=STLTXSingleBurst(pps=pps, total_pkts=total_pkts),
-                    )
 
-                    client.add_streams([stream], ports=[0])
+                    # Build one stream per packet in the merged pcap so the
+                    # full pcap contents are replayed. (STLPktBuilder(pkt=pcap)
+                    # would only load the *first* packet, so the burst would
+                    # send total_pkts copies of a single packet.) Distribute
+                    # the fixed total_pkts across the chained streams so the
+                    # burst still sends exactly total_pkts packets at the
+                    # scaled pps rate.
+                    profile = STLProfile.load_pcap(pcap_path)
+                    src_streams = profile.get_streams()
+                    n = len(src_streams)
+                    base_share, rem = divmod(total_pkts, n)
+
+                    kept: list[tuple[STLStream, int]] = []
+                    for i, src in enumerate(src_streams):
+                        share = base_share + (1 if i < rem else 0)
+                        if share <= 0:
+                            continue
+                        kept.append((src, share))
+
+                    streams = []
+                    for idx, (src, share) in enumerate(kept):
+                        streams.append(
+                            STLStream(
+                                name=src.get_name(),
+                                packet=src.scapy_pkt_builder,
+                                mode=STLTXSingleBurst(pps=pps, total_pkts=share),
+                                self_start=src.fields["self_start"],
+                                isg=0.0,
+                                next=(
+                                    kept[idx + 1][0].get_name()
+                                    if idx + 1 < len(kept)
+                                    else None
+                                ),
+                            )
+                        )
+
+                    client.add_streams(streams, ports=[0])
+                    if blocking and on_measurement_start is not None:
+                        on_measurement_start()
                     # burst stops on its own; -1 (unlimited) so it's never truncated at low multipliers
                     burst_start = time()
                     client.start(ports=[0], duration=-1)
-                    _mark_measurement_start()
                 else:
                     pcap = self.pcaps[0]
                     start = time()
