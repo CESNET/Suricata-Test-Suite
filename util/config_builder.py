@@ -8,7 +8,7 @@ SPDX-License-Identifier: BSD-3-Clause
 import logging
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Self
+from typing import Any, Self
 
 from ruamel.yaml import YAML
 from yamlpath import Processor
@@ -27,7 +27,9 @@ DEFAULT_TREX_CONF = (
 )
 
 
-def update_recursively(destination: Dict, source: Dict, extend_lists=True) -> Dict:
+def update_recursively(
+    destination: dict[str, Any], source: dict[str, Any], extend_lists=True
+) -> dict[str, Any]:
     for k, v in source.items():
         if isinstance(v, dict):
             existing = destination.get(k)
@@ -138,7 +140,7 @@ class ConfigBuilder:
 
         return self
 
-    def with_params(self, params: Dict) -> Self:
+    def with_params(self, params: dict[str, Any]) -> Self:
         for k, v in params.items():
             if k == "queues" or k == "rx_descriptors":
                 continue

@@ -387,7 +387,9 @@ def make_graph(
     plt.savefig(path_to_graph)
 
 
-def get_trex_suri_stats(path: str = None, stats_to_get: List[str] = None):
+def get_trex_suri_stats(
+    result_path: str | None = None, stats_to_get: List[str] | None = None
+):
     """
     Gets stats from the latest result (or specified path) in the results/artefacts directory.
 
@@ -400,7 +402,7 @@ def get_trex_suri_stats(path: str = None, stats_to_get: List[str] = None):
     can trace where the data originated.
 
     Inputs:
-        path         -> Optional path to a specific result folder (e.g.
+        result_path  -> Optional path to a specific result folder (e.g.
                         "results/artefacts/2026-07-03-12:00/test_https_simple").
                         If None, the `results/artefacts/latest` symlink is resolved.
         stats_to_get -> List of stat names to extract (e.g., ["suricata_rx_packets",
@@ -408,16 +410,15 @@ def get_trex_suri_stats(path: str = None, stats_to_get: List[str] = None):
     Output:
         Dictionary with requested stats and their values, plus a "_source_path" key.
     """
-    if path is None:
+    if result_path is None:
         latest_symlink = (
             Path(__file__).resolve().parent.parent / "results" / "artefacts" / "latest"
         )
         if not latest_symlink.exists():
             raise GetStatsError(f"Latest symlink does not exist: {latest_symlink}")
-        path = str(latest_symlink.resolve())
+        result_path = str(latest_symlink.resolve())
 
-    path = Path(path)
-    path = path / "aggregated.json"
+    path = Path(result_path) / "aggregated.json"
     if not path.exists():
         raise GetStatsError(f"No aggregated.json found in: {path}")
 

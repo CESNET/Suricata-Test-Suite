@@ -12,7 +12,7 @@ import os
 import warnings
 from pathlib import Path
 from time import sleep, time
-from typing import Callable, Dict, Literal, NamedTuple, Self
+from typing import Any, Callable, Literal, NamedTuple, Self, cast
 
 from lbr_testsuite.trex import (
     TRexAdvancedStateful,
@@ -38,7 +38,6 @@ from util.add_vlan import edit_vlan
 from util.config_builder import DEFAULT_TREX_CONF, ConfigBuilder
 from util.suri_util import RunInfo
 from util.trex_util import (
-    PcapList,
     TrexMode,
     get_trex_mac,
     merge_pcaps,
@@ -63,13 +62,13 @@ class BaseTrexClientManager:
 
     Subclasses are created as `MyProfile(BaseTrexClientManager, pcaps)`.
 
-    `pcaps: PcapList` is a list of (str, int) tuples, where int is:
+    `pcaps: list[Pcap]`, where `weight` is:
         - cps in STF
         - cps in ASTF
         - the divisor for `self.BASE_IPG_USEC` in STL
     """
 
-    pcaps: PcapList
+    pcaps: list[Pcap]
     multiplier: float | None = None
     duration: int | None = None
     _stf_config_path: Path | None = None
@@ -84,7 +83,7 @@ class BaseTrexClientManager:
             )
         return super().__new__(cls)
 
-    def __init_subclass__(cls, pcaps: PcapList) -> None:
+    def __init_subclass__(cls, pcaps: list[Pcap]) -> None:
         cls.profile_pcaps = pcaps
 
     def __init__(
@@ -97,13 +96,13 @@ class BaseTrexClientManager:
     ) -> None:
         # self.pcaps holds (absolute local Path, weight) Pcap objects; the
         # class-level `pcaps`/`profile_pcaps` are (relative str, weight).
-        self.pcaps: list[Pcap] = [
+        self.pcaps = [
             Pcap(self.PCAP_PATH_PREFIX / p[0], p[1]) for p in self.profile_pcaps
         ]
         self.mode = mode
         self.vlan_id = target_vlan
         self.request = request
-        self.multiplier: float | None = None
+        self.multiplier = None
 
         # warn once per profile instead of on every run()/multiplier iteration
         if (
@@ -127,15 +126,18 @@ class BaseTrexClientManager:
         )
 
         trex_gen = request.config.getoption("--trex-generator")
+        assert trex_gen is not None
         trex_host = trex_gen[0].split(",")
         trex_hostname = trex_host[0]
         trex_pcie = trex_host[1]
 
         match self.mode:
             case TrexMode.STL:
-                self.stl_generator: TRexStateless = manager.request_stateless(request)
+                self.stl_generator = cast(
+                    TRexStateless, manager.request_stateless(request)
+                )
                 self.trex_version = (
-                    self.stl_generator.get_handler().get_server_version()["version"]
+                    self.stl_generator.get_handler().get_server_version()["version"]  # pyright: ignore[reportOptionalMemberAccess]
                 )
 
                 self.stl_generator.set_dst_mac(target_mac)
@@ -172,17 +174,21 @@ class BaseTrexClientManager:
                     pcap.path,
                     trex_hostname,
                     pcap_remote_path,
-                    force=self.request.config.getoption("--force-pcap-upload"),
+                    force=cast(
+                        bool, self.request.config.getoption("--force-pcap-upload")
+                    ),
                 )
 
             case TrexMode.ASTF:
-                self.client: TRexAdvancedStateful = manager.request_stateful(
-                    request, role="client"
+                self.client = cast(
+                    TRexAdvancedStateful,
+                    manager.request_stateful(request, role="client"),
                 )
-                self.server: TRexAdvancedStateful = manager.request_stateful(
-                    request, role="server"
+                self.server = cast(
+                    TRexAdvancedStateful,
+                    manager.request_stateful(request, role="server"),
                 )
-                self.trex_version = self.server.get_handler().get_server_version()[
+                self.trex_version = self.server.get_handler().get_server_version()[  # pyright: ignore[reportOptionalMemberAccess]
                     "version"
                 ]
 
@@ -222,7 +228,9 @@ class BaseTrexClientManager:
                 config_path = Path(config.build())
                 config_remote_path = self.get_remote_data_path(config_path)
                 self.remote_stf_config = config_remote_path
-                force_upload = self.request.config.getoption("--force-pcap-upload")
+                force_upload = cast(
+                    bool, self.request.config.getoption("--force-pcap-upload")
+                )
                 send_to_remote(
                     config_path, trex_hostname, config_remote_path, force=force_upload
                 )
@@ -386,8 +394,8 @@ class BaseTrexClientManager:
                     )
 
                 profile = self.get_astf_profile(self.multiplier)
-                client_handler: ASTFClient = self.client.get_handler()
-                server_handler: ASTFClient = self.server.get_handler()
+                client_handler = cast(ASTFClient, self.client.get_handler())
+                server_handler = cast(ASTFClient, self.server.get_handler())
                 client_handler.load_profile(profile)
                 server_handler.load_profile(profile)
 
@@ -439,7 +447,7 @@ class BaseTrexClientManager:
 
         match self.mode:
             case TrexMode.STL:
-                client: STLClient = self.stl_generator.get_handler()
+                client = cast(STLClient, self.stl_generator.get_handler())
                 burst = self.request.config.getoption("--trex-stl-burst")
 
                 if burst is not None:
@@ -640,7 +648,7 @@ class BaseTrexClientManager:
                 ]["data"]
                 return float(data.get("m_tx_pps", 0.0))
 
-    def get_stats(self, role: Literal["server"] | Literal["client"] = "server") -> Dict:
+    def get_stats(self, role: Literal["server", "client"] = "server") -> dict[str, Any]:
         assert role in ("server", "client")
 
         match self.mode:
@@ -667,7 +675,7 @@ class BaseAdHocTrex(BaseTrexClientManager, pcaps=[]):
 
     def __init__(
         self,
-        pcaps: PcapList,
+        pcaps: list[Pcap],
         manager: TRexManager,
         request: FixtureRequest,
         target_mac: str,

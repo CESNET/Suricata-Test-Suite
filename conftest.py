@@ -24,7 +24,6 @@ import re
 from dataclasses import dataclass
 from lbr_testsuite.executable import executable, remote_executor
 from lbr_trex_client.interactive import trex
-from typing import Tuple
 from pathlib import Path
 from itertools import product
 from param import filter
@@ -36,7 +35,7 @@ PATH_TO_ARTEFACTS: str = str(Path(__file__).parent / "results" / "artefacts")
 logger = get_logger(__name__)
 
 # Defaults for --trex-stl-burst when it is given without arguments: (PPS, PACKET_COUNT).
-STL_BURST_DEFAULTS: Tuple[float, int] = (200_000, 10_000_000)
+STL_BURST_DEFAULTS: tuple[float, int] = (200_000, 10_000_000)
 
 # alias lbr_trex_client.interactive.trex to trex for importing native TRex profiles
 sys.modules["trex"] = trex
@@ -350,7 +349,7 @@ def get_trex_executor(request):
     return remote_executor.RemoteExecutor(host=trex_name, user=user)
 
 
-def get_host_internal(request) -> Tuple[str, str]:
+def get_host_internal(request) -> str:
     return request.config.getoption("--remote-host")
 
 
@@ -490,7 +489,7 @@ def suri_interface_bind(request):
         elif af_packet_match is not None:
             return (request.node.callspec.params["params"][parameter_path], "af-packet")
 
-    assert dpdk_match is not None or af_packet_match is not None
+    raise ValueError("No interfaces to bind")
 
 
 @pytest.fixture(autouse=True)
@@ -708,6 +707,7 @@ def import_module(param_file):
     spec = importlib.util.spec_from_file_location(
         module_name_of_param_file, module_path
     )
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -834,6 +834,7 @@ def get_capture_modes(param_file):
     module = import_module(param_file)
     if hasattr(module, "capture_modes"):
         return module.capture_modes
+    return []
 
 
 def make_combinations_for_af_packet(queues, rx_descriptors):
@@ -886,17 +887,18 @@ def setup_af_packet(request):
 
 
 def af_packet_get_queues_rx_descriptors(param_file, params):
+    parameters = None
+    key = None
     for parameter_path in params[-1].keys():
         af_packet_match = re.match(r"af-packet\[[0-9]+\].interface", parameter_path)
 
         if af_packet_match is not None:
-            key = af_packet_match.group(0)
             parameters = params[-1]
-        else:
-            return
+            key = af_packet_match.group(0)
+            break
 
-    queues_not_empty = False
-    rx_descriptors_not_empty = False
+    if parameters is None or key is None:
+        return
 
     file_is_accessible(param_file)
     module = import_module(param_file)
@@ -912,9 +914,8 @@ def af_packet_get_queues_rx_descriptors(param_file, params):
             .replace("[", "")
             .replace("]", "")
         )
-        if query_result:  # empty str
-            queues = [int(i) for i in query_result.split(",")]
-            queues_not_empty = True
+        assert query_result, "queues cannot be empty because of settings"
+        queues = [int(i) for i in query_result.split(",")]
 
         query_result = (
             str(
@@ -927,13 +928,8 @@ def af_packet_get_queues_rx_descriptors(param_file, params):
             .replace("[", "")
             .replace("]", "")
         )
-        if query_result:  # empty str
-            rx_descriptors = [int(i) for i in query_result.split(",")]
-            rx_descriptors_not_empty = True
-
-        assert (
-            queues_not_empty and rx_descriptors_not_empty
-        )  # cannot be empty because of settings
+        assert query_result, "rx_descriptors cannot be empty because of settings"
+        rx_descriptors = [int(i) for i in query_result.split(",")]
 
         combinations = make_combinations_for_af_packet(queues, rx_descriptors)
         params.pop()

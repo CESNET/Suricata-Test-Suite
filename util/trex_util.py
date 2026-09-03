@@ -11,7 +11,6 @@ import os
 import subprocess
 from enum import Enum
 from pathlib import Path
-from typing import Sequence, Tuple
 from scapy.all import PcapWriter, PcapReader
 
 import pytest
@@ -24,9 +23,6 @@ class TrexMode(Enum):
     STL = 0
     ASTF = 1
     STF = 2
-
-
-PcapList = Sequence[Tuple[str, int | float]]
 
 
 def _packet_generator(
