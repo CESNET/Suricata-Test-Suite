@@ -28,7 +28,7 @@ from typing import Tuple
 from pathlib import Path
 from itertools import product
 from param import filter
-from util.config_builder import ConfigBuilder
+from util.config_builder import DEFAULT_SURICATA_CONF, ConfigBuilder
 from util.log_util import get_logger, setup_logging
 
 TIME_STR = time.strftime("-".join(["%Y", "%m", "%d", "%H:%M"]))
@@ -527,7 +527,7 @@ def suricata_conf_file(request) -> ConfigBuilder:
             editable_yaml, request.config.getoption("--suricata-cfg")
         )
     else:
-        builder = ConfigBuilder(editable_yaml)
+        builder = ConfigBuilder(editable_yaml, str(DEFAULT_SURICATA_CONF))
 
     return builder
 

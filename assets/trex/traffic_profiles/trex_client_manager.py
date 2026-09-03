@@ -35,7 +35,7 @@ from trex_client import CTRexClient
 from pytest import FixtureRequest
 
 from util.add_vlan import edit_vlan
-from util.config_builder import ConfigBuilder
+from util.config_builder import DEFAULT_TREX_CONF, ConfigBuilder
 from util.suri_util import RunInfo
 from util.trex_util import (
     PcapList,
@@ -204,7 +204,7 @@ class BaseTrexClientManager:
                 os.makedirs("tmp", exist_ok=True)
                 config = ConfigBuilder(
                     "tmp/trex_cfg.yaml",
-                    str(Path(__file__).parent / "default_trex.yaml"),
+                    str(DEFAULT_TREX_CONF),
                 )
                 config.set_option("[0].interfaces", [trex_pcie, "dummy"])
                 config.set_option("[0].port_info[.=dest_mac].dest_mac", target_mac)
