@@ -10,6 +10,7 @@ SPDX-License-Identifier: BSD-3-Clause
 
 import argparse
 import logging
+from math import log2
 import sys
 import pytest
 import os.path
@@ -88,9 +89,39 @@ def _log_level_type(value: str) -> str | int:
     )
 
 
-def _fmt_thousands(value: int) -> str:
+def fmt_thousands(value: int) -> str:
     """Format an integer with space thousands separators (e.g. 200000 -> '200 000')."""
     return f"{value:,}".replace(",", " ")
+
+
+def fmt_bytes(value: int) -> str:
+    """Format an integer as an SI prefixed amount of bytes.
+
+    If the value is an integer multiple of the -ibby (base 2)
+    prefixes, then those are used. For example 6GiB.
+
+    Otherwise normal (base 10) prefixes are used.
+    For example 42.67KB.
+    """
+    if value == 0:
+        return "0B"
+
+    sign = "-" if value < 0 else ""
+    value = abs(value)
+
+    binary_prefixes = ["KiB", "MiB", "GiB", "TiB", "PiB", "EiB"]
+    for i in range(len(binary_prefixes), 0, -1):
+        divisor = 1024**i
+        if value % divisor == 0:
+            return f"{sign}{value // divisor}{binary_prefixes[i - 1]}"
+
+    decimal_prefixes = ["B", "KB", "MB", "GB", "TB", "PB", "EB"]
+    index = min(int(log2(value) // log2(1000)), len(decimal_prefixes) - 1)
+    if index == 0:
+        return f"{sign}{value}B"
+
+    scaled = value / 1000**index
+    return f"{sign}{scaled:.2f}{decimal_prefixes[index]}"
 
 
 def _validate_stl_burst_option(config) -> None:
@@ -291,8 +322,8 @@ def pytest_addoption(parser):
         help=(
             "In STL mode, send a fixed burst of PACKET_COUNT packets at PPS "
             "instead of replaying for the configured duration. With no "
-            f"arguments, defaults to {_fmt_thousands(int(STL_BURST_DEFAULTS[0]))} "
-            f"PPS and {_fmt_thousands(STL_BURST_DEFAULTS[1])} packets. Only "
+            f"arguments, defaults to {fmt_thousands(int(STL_BURST_DEFAULTS[0]))} "
+            f"PPS and {fmt_thousands(STL_BURST_DEFAULTS[1])} packets. Only "
             "applies to STL mode; ignored (with a warning) for other modes."
         ),
     )

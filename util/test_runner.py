@@ -9,10 +9,16 @@ Test runner class for Suricata tests.
 Provide a common interface for running Suricata tests, including setup, traffic generation, and stats collection.
 """
 
-import pytest
+from time import time
 
+import pytest
+import logging
+
+from conftest import fmt_bytes, fmt_thousands
 from util.suricata_manager import Suricata_manager, SuriDown
 from util.suri_util import RunInfo, save_stats, TestInfo
+
+logger = logging.getLogger(__name__)
 
 
 class TestRun:
@@ -49,6 +55,7 @@ class TestRun:
         except SuriDown:
             pytest.fail("Suricata is down.")
 
+        start_time = time()
         run_info = RunInfo(multiplier=multiplier)
         try:
             self._run_traffic(multiplier, duration, run_info)
@@ -60,7 +67,14 @@ class TestRun:
 
         self._collect_stats(run_info)
         run_info.suricata_start_delay = self.suri_daemon.last_start_delay
-        save_stats(self.params, self.request, self.test_info, run_info)
+        stats = save_stats(self.params, self.request, self.test_info, run_info)
+
+        logger.info(
+            "Run ended (%ds, %s pkts, %s)",
+            int(time() - start_time),
+            fmt_thousands(stats.get("suricata_rx_packets", 0)),
+            fmt_bytes(stats.get("suricata_rx_bytes", 0)),
+        )
 
 
 class TrexTestRun(TestRun):

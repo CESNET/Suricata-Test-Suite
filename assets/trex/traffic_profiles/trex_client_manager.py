@@ -27,6 +27,7 @@ from lbr_testsuite.trex import (
 # against in `isinstance()` (e.g. STLClient.add_streams). Importing from
 # `lbr_trex_client.interactive.trex.*` instead would create distinct class
 # objects and break those checks.
+from conftest import fmt_bytes, fmt_thousands
 from trex.astf import trex_astf_profile
 from trex.astf.trex_astf_client import ASTFClient
 from trex.common.trex_exceptions import TRexError
@@ -122,7 +123,7 @@ class BaseTrexClientManager:
             "Initializing TRex client manager: mode=%s vlan_id=%d pcaps=%s",
             self.mode.name,
             self.vlan_id,
-            [p.path for p in self.pcaps],
+            [str(p.path.relative_to(self.PCAP_PATH_PREFIX)) for p in self.pcaps],
         )
 
         trex_gen = request.config.getoption("--trex-generator")
@@ -551,10 +552,11 @@ class BaseTrexClientManager:
         match self.mode:
             case TrexMode.STL:
                 self.stl_generator.wait_on_traffic()
+                self.stop()
 
             case TrexMode.ASTF:
                 self.client.wait_on_traffic()
-                self.server.stop()
+                self.stop()
 
             case TrexMode.STF:
                 assert self.duration is not None
@@ -566,7 +568,12 @@ class BaseTrexClientManager:
                 self.stop()
 
     def stop(self) -> None:
-        logger.info("Stopping TRex traffic: mode=%s", self.mode.name)
+        logger.info(
+            "Stopping TRex traffic (%s, %s pkts, %s)",
+            self.mode.name,
+            fmt_thousands(self.get_tx_packets()),
+            fmt_bytes(self.get_tx_bytes()),
+        )
         match self.mode:
             case TrexMode.STL:
                 self.stl_generator.stop()
