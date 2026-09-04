@@ -608,31 +608,41 @@ class BaseTrexClientManager:
         """Current cumulative TRex transmit packet count."""
         match self.mode:
             case TrexMode.STL:
-                return int(self.stl_generator.get_stats()["total"]["opackets"])
-            case TrexMode.ASTF:
-                return int(self.server.get_stats()["total"]["opackets"]) + int(
-                    self.client.get_stats()["total"]["opackets"]
+                return int(
+                    self.stl_generator.get_stats().get("total", {}).get("opackets", 0)
                 )
+            case TrexMode.ASTF:
+                return int(
+                    self.server.get_stats().get("total", {}).get("opackets", 0)
+                ) + int(self.client.get_stats().get("total", {}).get("opackets", 0))
             case TrexMode.STF:
-                data = self.stf_generator.get_result_obj().get_latest_dump()[
-                    "trex-global"
-                ]["data"]
-                return int(data["m_total_tx_pkts"])
+                return int(
+                    self.stf_generator.get_result_obj()
+                    .get_latest_dump()
+                    .get("trex-global", {})
+                    .get("data", {})
+                    .get("m_total_tx_pkts", 0)
+                )
 
     def get_tx_bytes(self) -> int:
         """Current cumulative TRex transmit byte count."""
         match self.mode:
             case TrexMode.STL:
-                return int(self.stl_generator.get_stats()["total"]["obytes"])
-            case TrexMode.ASTF:
-                return int(self.server.get_stats()["total"]["obytes"]) + int(
-                    self.client.get_stats()["total"]["obytes"]
+                return int(
+                    self.stl_generator.get_stats().get("total", {}).get("obytes", 0)
                 )
+            case TrexMode.ASTF:
+                return int(
+                    self.server.get_stats().get("total", {}).get("obytes", 0)
+                ) + int(self.client.get_stats().get("total", {}).get("obytes", 0))
             case TrexMode.STF:
-                data = self.stf_generator.get_result_obj().get_latest_dump()[
-                    "trex-global"
-                ]["data"]
-                return int(data["m_total_tx_bytes"])
+                return int(
+                    self.stf_generator.get_result_obj()
+                    .get_latest_dump()
+                    .get("trex-global", {})
+                    .get("data", {})
+                    .get("m_total_tx_bytes", 0)
+                )
 
     def get_tx_pps(self) -> float:
         """Current instantaneous TRex transmit rate (packets per second).
@@ -644,16 +654,21 @@ class BaseTrexClientManager:
         """
         match self.mode:
             case TrexMode.STL:
-                return float(self.stl_generator.get_stats()["total"]["tx_pps"])
-            case TrexMode.ASTF:
-                return float(self.server.get_stats()["total"]["tx_pps"]) + float(
-                    self.client.get_stats()["total"]["tx_pps"]
+                return float(
+                    self.stl_generator.get_stats().get("total", {}).get("tx_pps", 0.0)
                 )
+            case TrexMode.ASTF:
+                return float(
+                    self.server.get_stats().get("total", {}).get("tx_pps", 0.0)
+                ) + float(self.client.get_stats().get("total", {}).get("tx_pps", 0.0))
             case TrexMode.STF:
-                data = self.stf_generator.get_result_obj().get_latest_dump()[
-                    "trex-global"
-                ]["data"]
-                return float(data.get("m_tx_pps", 0.0))
+                return float(
+                    self.stf_generator.get_result_obj()
+                    .get_latest_dump()
+                    .get("trex-global", {})
+                    .get("data", {})
+                    .get("m_tx_pps", 0.0)
+                )
 
     def get_stats(self, role: Literal["server", "client"] = "server") -> dict[str, Any]:
         assert role in ("server", "client")
