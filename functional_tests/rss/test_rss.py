@@ -8,8 +8,8 @@ Suricata testing module.
 
 RSS functional test - verifies flow-to-CPU placement on a multi-queue DPDK
 interface. The test is parametrized by stage so a single stage can be
-selected and run in isolation via its node ID, e.g.
-`functional_tests/rss/test_rss.py::test_rss[2]`:
+selected and run in isolation via its node ID (use --collect-only to find
+it), e.g. `functional_tests/rss/test_rss.py::test_rss[params0-2]`:
 
 * stage 1: single flow A is handled entirely by one worker,
 * stage 2: three distinct flows B/C/D spread over multiple workers,

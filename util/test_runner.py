@@ -29,11 +29,11 @@ class TestRun:
         self.request = request
 
     def _before_traffic(
-        self, multiplier: float, duration: int, pcap: str | None = None
+        self, multiplier: float, duration: int | None, pcap: str | None = None
     ):
         """Prepare TRex before suricata starts (select pcap, reset, set_props)."""
 
-    def _run_traffic(self, multiplier: float, duration: int, run_info: RunInfo):
+    def _run_traffic(self, multiplier: float, duration: int | None, run_info: RunInfo):
         """Generate traffic. Suricata is already running."""
         raise NotImplementedError("subclass must implement _run_traffic")
 
@@ -93,14 +93,14 @@ class TrexTestRun(TestRun):
         self.trex_client = trex_client
 
     def _before_traffic(
-        self, multiplier: float, duration: int, pcap: str | None = None
+        self, multiplier: float, duration: int | None, pcap: str | None = None
     ):
         if pcap is not None:
             self.trex_client.set_pcap(pcap)
         self.trex_client.set_props(multiplier, duration)
         self.trex_client.prepare()
 
-    def _run_traffic(self, multiplier: float, duration: int, run_info: RunInfo):
+    def _run_traffic(self, multiplier: float, duration: int | None, run_info: RunInfo):
         # sample TRex's own counters at the measurement-window start
         def on_measurement_start():
             run_info.trex_tx_packets_at_start = self.trex_client.get_tx_packets()

@@ -75,7 +75,7 @@ class BaseTrexClientManager:
     duration: int | None = None
     _stf_config_path: Path | None = None
     _selected_pcap: str | None = None
-    _selectable_pcaps: PcapList | None = None
+    _selectable_pcaps: list[Pcap] | None = None
 
     BASE_IPG_USEC = 12.0  # ~1 Gbps at 1500 bytes per packet
     PCAP_PATH_PREFIX = Path(__file__).parent / "pcaps"
@@ -390,13 +390,16 @@ class BaseTrexClientManager:
 
         Matching is done by filename only, since the profile's pcaps all live
         in `PCAP_PATH_PREFIX`. VLAN-tagged copies (`name.vlanNNN.pcap` created
-        by `edit_vlan`) are matched by their original name as well.
+        by `edit_vlan`) match the original name and vice versa, so a pcap can
+        be selected by either filename regardless of tagging.
         """
         entry = Path(pcap_entry)
         req = Path(requested)
         if entry.name == req.name:
             return True
-        return entry.stem.startswith(f"{req.stem}.vlan")
+        return entry.stem.startswith(f"{req.stem}.vlan") or req.stem.startswith(
+            f"{entry.stem}.vlan"
+        )
 
     def set_pcap(self, pcap: str | Path) -> None:
         """
