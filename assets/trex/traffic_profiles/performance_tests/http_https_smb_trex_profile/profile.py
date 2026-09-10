@@ -8,17 +8,21 @@ SPDX-License-Identifier: BSD-3-Clause
 from pathlib import Path
 
 import lbr_trex_client.interactive.trex.astf.trex_astf_profile as astf_profile
-from assets.trex.traffic_profiles.trex_client_manager import BaseTrexClientManager
+
+from assets.trex.traffic_profiles.trex_client_manager import BaseTrexClientManager, Pcap
 
 from .native import Prof1
 
 
-class HttpHttpsSmbProfile(BaseTrexClientManager, pcaps=Prof1.pcaps):
+class HttpHttpsSmbProfile(
+    BaseTrexClientManager,
+    pcaps=[Pcap(Path(name), weight) for name, weight in Prof1.pcaps],
+):
     def get_astf_profile(self, multiplier: float) -> astf_profile.ASTFProfile:
         profile = Prof1()
         for i, pcap in enumerate(self.profile_pcaps):
-            pcap_path = str(Path(__file__).parents[2] / "pcaps" / pcap[0])
-            cps = pcap[1] * multiplier
+            pcap_path = str(Path(__file__).parents[2] / "pcaps" / pcap.path)
+            cps = pcap.weight * multiplier
             profile.pcaps[i] = (pcap_path, cps)
 
         return Prof1().get_profile({})
