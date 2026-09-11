@@ -28,8 +28,10 @@ class TestRun:
         self.params = params
         self.request = request
 
-    def _before_traffic(self, multiplier: float, duration: int):
-        """Prepare TRex before suricata starts (e.g. reset, set_props)."""
+    def _before_traffic(
+        self, multiplier: float, duration: int, pcap: str | None = None
+    ):
+        """Prepare TRex before suricata starts (select pcap, reset, set_props)."""
 
     def _run_traffic(self, multiplier: float, duration: int, run_info: RunInfo):
         """Generate traffic. Suricata is already running."""
@@ -38,11 +40,24 @@ class TestRun:
     def _collect_stats(self, run_info: RunInfo):
         """Attach TRex stats to *run_info* after traffic completes."""
 
-    def execute(self, multiplier: float, duration: int | None = None):
-        if duration is None:
+    def execute(
+        self,
+        multiplier: float = 1.0,
+        duration: int | None = None,
+        pcap: str | None = None,
+        single_pass: bool = False,
+    ):
+        """Run one traffic+stats cycle.
+
+        `duration=None` falls back to `test_info.traffic_duration`; pass
+        `single_pass=True` to explicitly disable the duration so the traffic
+        is bounded by the pcap content instead of time (each pcap is
+        transmitted exactly once).
+        """
+        if duration is None and not single_pass:
             duration = self.test_info.traffic_duration
 
-        self._before_traffic(multiplier, duration)
+        self._before_traffic(multiplier, duration, pcap)
 
         try:
             self.suri_daemon.start()
@@ -77,7 +92,11 @@ class TrexTestRun(TestRun):
         super().__init__(suri_daemon, test_info, params, request)
         self.trex_client = trex_client
 
-    def _before_traffic(self, multiplier: float, duration: int):
+    def _before_traffic(
+        self, multiplier: float, duration: int, pcap: str | None = None
+    ):
+        if pcap is not None:
+            self.trex_client.set_pcap(pcap)
         self.trex_client.set_props(multiplier, duration)
         self.trex_client.prepare()
 

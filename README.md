@@ -300,6 +300,47 @@ Examples:
 
 ---
 
+### mtu (functional)
+
+Functional test in `functional_tests/mtu/` that verifies jumbo frame handling on a DPDK
+interface with MTU 9000 (Suricata derives the mbuf/RX buffer size from the interface MTU).
+Suricata uses the test-local `functional_tests/mtu/suricata.yaml`; each stage replays a
+single-pass 1000-packet burst of one fixed 5-tuple flow (A) at a given IP total length and
+asserts decoder counters from `eve-stats.json` (pkts, ethernet frames, bytes - the full L2
+frame length, no CRC).
+
+The test is parametrized by stage, so each stage is a separate pytest node and can be run
+(and selected) in isolation:
+
+| Stage | IP length | Replayed pcap | Assertion |
+|-------|-----------|---------------|-----------|
+| 1 | 1500 | `mtu_flow_a_1500_1000p.pcap` | baseline: all frames received whole (count + byte sum) |
+| 2 | 1501 | `mtu_flow_a_1501_1000p.pcap` | off-by-one above the standard MTU received whole |
+| 3 | 7000 | `mtu_flow_a_7000_1000p.pcap` | mid-range jumbo received whole - exposes undersized RX buffers |
+| 4 | 9000 | `mtu_flow_a_9000_1000p.pcap` | exactly the configured MTU boundary received whole |
+| 5 | 9001 | `mtu_flow_a_9001_1000p.pcap` | one byte above the MTU: frames must be rejected |
+
+The test forces `dpdk.interfaces[0].mtu` to 9000 regardless of the parametrized value.
+
+Full run and per-stage runs:
+
+```bash
+# All stages
+./pytest_start.sh -s dpdk-test2 -d 'functional_tests/mtu/test_mtu.py::test_mtu' -tg trex
+
+# Single stage (quote the node ID - brackets would otherwise be globbed by the shell);
+# the paramsN prefix comes from param.py combinations, verify with --collect-only first
+./pytest_start.sh -s dpdk-test2 -d 'functional_tests/mtu/test_mtu.py::test_mtu[params0-4]' -tg trex
+```
+
+Notes:
+
+- the test forces the STL TRex mode and replays each pcap exactly once (single pass), so
+  traffic volume is bounded by the pcap content, not by `--traffic-duration`
+- rules are not used (`/dev/null`), only decoder delivery is inspected
+
+---
+
 ### Binary search
 
 This is a mode where we are testing maximum Suricata throughput and trying to converge on a defined
