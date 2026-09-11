@@ -522,10 +522,14 @@ def suricata_conf_file(request) -> ConfigBuilder:
 
     os.makedirs(str(destination_dir), exist_ok=True)
 
+    test_local_cfg = Path(request.node.path).parent / "suricata.yaml"
     if request.config.getoption("--suricata-cfg"):
         builder = ConfigBuilder(
             editable_yaml, request.config.getoption("--suricata-cfg")
         )
+    elif test_local_cfg.is_file():
+        logger.debug("Using test-local Suricata config: %s", test_local_cfg)
+        builder = ConfigBuilder(editable_yaml, str(test_local_cfg))
     else:
         builder = ConfigBuilder(editable_yaml)
 

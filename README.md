@@ -300,6 +300,45 @@ Examples:
 
 ---
 
+### bond (functional)
+
+Functional test in `functional_tests/bond/` that verifies traffic delivery through a
+DPDK bond (logical interface combining multiple physical ports). Preconditions are
+provisioned outside of this suite: a bond (active-backup or LACP/802.3ad) is configured
+for the capture interface and its members are negotiated - see functionalTesting.md
+"Bond PMD". Suricata uses the test-local `functional_tests/bond/suricata.yaml`.
+
+The test is parametrized by stage, so each stage is a separate pytest node and can be
+run (and selected) in isolation:
+
+| Stage | Replayed pcap | Assertion |
+|-------|---------------|-----------|
+| 1 | `bond_flow_a_1000p.pcap` (flow A) | frames received intact through the bond (pkts + bytes), proving the bond is constructed and passes frames |
+| 2 | `bond_flow_a_1000p.pcap` (flow A) | delivery continuity - Suricata keeps receiving without a permanent stall or crash |
+| 3 | `bond_flows_bcd_6000p.pcap` (flows B/C/D) | all flows received - LACP aggregate delivery (per-member distribution is not visible through the logical bond interface) |
+
+Full run and per-stage runs:
+
+```bash
+# All stages
+./pytest_start.sh -s dpdk-test2 -d 'functional_tests/bond/test_bond.py::test_bond' -tg trex
+
+# Single stage (quote the node ID - brackets would otherwise be globbed by the shell);
+# the paramsN prefix comes from param.py combinations, verify with --collect-only first
+./pytest_start.sh -s dpdk-test2 -d 'functional_tests/bond/test_bond.py::test_bond[params0-2]' -tg trex
+```
+
+Notes:
+
+- mid-burst member link-down (true failover exercise) and per-member LACP distribution
+  need TRex port-level control / per-member visibility - both are documented v1
+  limitations, to be automated in a follow-up
+- the test forces the STL TRex mode and replays each pcap exactly once (single pass), so
+  traffic volume is bounded by the pcap content, not by `--traffic-duration`
+- rules are not used (`/dev/null`), only decoder delivery is inspected
+
+---
+
 ### Binary search
 
 This is a mode where we are testing maximum Suricata throughput and trying to converge on a defined
