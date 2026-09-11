@@ -20,9 +20,8 @@ class NfsSmbProfile(
 ):
     def get_astf_profile(self, multiplier: float) -> astf_profile.ASTFProfile:
         profile = Prof1()
-        for i, pcap in enumerate(self.profile_pcaps):
-            pcap_path = str(Path(__file__).parents[2] / "pcaps" / pcap.path)
-            cps = pcap.weight * multiplier
-            profile.pcaps[i] = (pcap_path, cps)
+        profile.pcaps = [
+            (str(pcap.path), pcap.weight * multiplier) for pcap in self.pcaps
+        ]
 
         return profile.get_profile({})
