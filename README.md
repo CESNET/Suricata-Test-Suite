@@ -298,6 +298,40 @@ Examples:
 ./pytest_start.sh -s claret -d http_simple -fm stl -f norules -sb
 ```
 
+### rss (functional)
+
+Functional test in `functional_tests/rss/` that verifies RSS (Receive Side Scaling) flow-to-queue
+placement on a multi-queue DPDK interface. Suricata uses the test-local `functional_tests/rss/suricata.yaml`
+(symmetric L3+L4 RSS hash, multiple RX queues); placement is asserted on the per-worker packet
+counts from `eve-stats.json` (queue id = worker name minus interface suffix, e.g. `W#02`
+of `W#02-0000:3b:00.1`).
+
+The test is parametrized by stage, so each stage is a separate pytest node and can be run
+(and selected) in isolation:
+
+| Stage | Replayed pcap | Assertion |
+|-------|---------------|-----------|
+| 1 | `rss_flow_a_1000p.pcap` (flow A) | flow A is handled by exactly one queue |
+| 2 | `rss_flows_bcd_6000p.pcap` (flows B/C/D) | flows spread over more than one queue |
+| 3 | `rss_flow_ra_500p.pcap` (reversed flow rA) | rA shares A's queue (symmetric RSS hash); A's reference queue is learned inline first, so the stage is standalone-safe |
+
+Full run and per-stage runs:
+
+```bash
+# All stages
+./pytest_start.sh -s dpdk-test2 -d 'functional_tests/rss/test_rss.py::test_rss' -tg trex
+
+# Single stage (quote the node ID - brackets would otherwise be globbed by the shell);
+# the paramsN prefix comes from param.py combinations, verify with --collect-only first
+./pytest_start.sh -s dpdk-test2 -d 'functional_tests/rss/test_rss.py::test_rss[params0-2]' -tg trex
+```
+
+Notes:
+
+- the test forces the STL TRex mode and replays each pcap exactly once (single pass), so
+  traffic volume is bounded by the pcap content, not by `--traffic-duration`
+- rules are not used (`/dev/null`), only packet placement is inspected
+
 ---
 
 ### Binary search
