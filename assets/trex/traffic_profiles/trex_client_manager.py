@@ -10,6 +10,7 @@ TRex profile template for use in Suricata-Test-Suite
 import logging
 import warnings
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from time import sleep, time
@@ -233,6 +234,8 @@ class BaseTrexClientManager:
             target_vlan=target_vlan,
         )
 
+        self._available_pcaps = deepcopy(self.pcaps)
+
     # --- mode-specific initialization -------------------------------------
 
     def _init_stl(
@@ -324,12 +327,11 @@ class BaseTrexClientManager:
         logger.info("Uploading pcaps to TRex server. This might take a while.")
         config_path = self._build_stf_config(target_mac, target_vlan)
         config_remote_path = self.get_remote_data_path(config_path)
-        force_upload = self.trex_request.force_pcap_upload
         send_to_remote(
             config_path,
             self.trex_request.hostname,
             config_remote_path,
-            force=force_upload,
+            force=self.trex_request.force_pcap_upload,
         )
 
         vlanned_pcaps: list[Pcap] = []
@@ -343,18 +345,11 @@ class BaseTrexClientManager:
                 pcap_path,
                 self.trex_request.hostname,
                 pcap_remote_path,
-                force=force_upload,
+                force=self.trex_request.force_pcap_upload,
             )
         self.pcaps = vlanned_pcaps
 
-        profile_path = self.get_stf_profile()
-        profile_remote_path = self.get_remote_data_path(profile_path)
-        send_to_remote(
-            profile_path,
-            self.trex_request.hostname,
-            profile_remote_path,
-            force=force_upload,
-        )
+        profile_remote_path = self._refresh_stf_profile()
 
         return StfState(
             generator=stf_generator,
@@ -419,6 +414,23 @@ class BaseTrexClientManager:
         A directory is created from the output of `get_remote_data_path(Path(""))`.
         """
         return Path(f"/opt/trex/{self.trex_version}/pcaps") / local_path.name
+
+    def change_pcaps(self, pcaps: list[Pcap]):
+        """
+        Change selected PCAPs without uploading them to the remote.
+        Profiles and configuration files are rebuilt automatically.
+
+        `pcaps` has to be a subset of PCAPs with which TRex was initialized.
+        """
+        available_paths = [pcap.path for pcap in self._available_pcaps]
+        for pcap in pcaps:
+            if pcap.path not in available_paths:
+                raise ValueError(f"Path {pcap.path} is not in available pcaps")
+
+        self.pcaps = pcaps
+
+        if self.trex_request.mode == TrexMode.STF:
+            _ = self._refresh_stf_profile()
 
     def get_astf_profile(self, multiplier: float) -> trex_astf_profile.ASTFProfile:
         """
@@ -524,6 +536,21 @@ class BaseTrexClientManager:
         Optionally modify the TRex config before it gets sent to the remote.
         """
         return config
+
+    def _refresh_stf_profile(self) -> Path:
+        """
+        Rebuild STF profile and upload it to the remote.
+        """
+        profile_path = self.get_stf_profile()
+        profile_remote_path = self.get_remote_data_path(profile_path)
+        send_to_remote(
+            profile_path,
+            self.trex_request.hostname,
+            profile_remote_path,
+            force=self.trex_request.force_pcap_upload,
+        )
+
+        return profile_remote_path
 
     # --- traffic lifecycle: props, prepare, run, wait, stop ---------------
 
