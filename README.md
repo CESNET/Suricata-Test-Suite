@@ -133,31 +133,35 @@ If you want to pass a flag to pytest directly, you can do so by adding it after 
 
 ### Environment variables
 
-Optionally you can create a `.env` file with default variables, so that you don't have to fill out the flags on every run of pytests.
-The file will look like this:
+Optionally you can create a `.env` file with default values, so that you don't have to fill out the flags on every run of pytest.
+Use [`.env.example`](.env.example) as a template - it lists all supported variables together with the corresponding `pytest_start.sh` flags:
 
 ```bash
-# Variables marked with "# -" don't have any default value, otherwise
-# default values are shown
+cp .env.example .env
+```
 
+The full list of variables (each maps to a script flag shown in parentheses):
+
+```bash
 # Mandatory flags
 # if these aren't set, you have to manually specify them every time
-DEFAULT_SURICATA_SERVER="claret"  # -
-DEFAULT_TREX_SERVER="trex2"       # -
-DEFAULT_TREX_PORT1="0000:b3:00.0" # -
-DEFAULT_TREX_PORT2="0000:b3:00.1" # -
-DEFAULT_PCIES="0000:3b:00.0"      # -
+DEFAULT_SURICATA_SERVER="claret"        # -  (-s)
+DEFAULT_TREX_SERVER="trex2"             # -  (-tg)
+DEFAULT_TREX_PORT1="0000:b3:00.0"       # -  (-p1)
+DEFAULT_TREX_PORT2="0000:b3:00.1"       # -  (-p2)
+DEFAULT_PCIES="0000:3b:00.0"            # -  (-p, space-separated for multiple)
 
 # Mandatory for single port tests
-DEFAULT_TARGET_MAC="08:C0:EB:88:C5:38" # -
+DEFAULT_TARGET_MAC="08:C0:EB:88:C5:38"  # -  (-tm)
 
-# Optional flags
-DEFAULT_TARGET_VLAN=15                     # -
-DEFAULT_TESTS="http_simple nfs_smb_simple" # all tests by default
-DEFAULT_TIME=300
-DEFAULT_HEATUP=0
-DEFAULT_HUGEPAGES="6G"
-LOGLEVEL="INFO"
+# Optional flags (if unset, the built-in defaults shown apply)
+DEFAULT_TARGET_VLAN=0                        # -  (-tv; untagged by default)
+DEFAULT_TESTS="http_simple nfs_smb_simple"   #    (-d; http_simple by default)
+DEFAULT_TIME=300                             #    (-t)
+DEFAULT_HEATUP=0                             #    (-ht)
+DEFAULT_HUGEPAGES="6G"                       #    (-sh)
+LOGLEVEL="INFO"                              #    (-sl)
+DEFAULT_SUITE_LOG_FILE=false                 #    (-sf; set to true to enable)
 ```
 
 **Note on hugepages:** `DEFAULT_HUGEPAGES` (or `--suricata-hugepages`/`-sh` in `pytest_start.sh`,

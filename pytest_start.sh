@@ -14,50 +14,90 @@ set -xe
 
 usage(){
   set +x
-  echo "Bash script to start pytest"
-  echo "Options:"
-  echo "-s    | --server [SERVER] to specify the server, where Suricata will be running"
-  echo "-tm   | --target-mac [MAC_ADDRESS] to specify where to send traffic when not using ASTF TRex."
-  echo "-tv   | --target-vlan [VLAN_ID] to specify what VLAN tag to use for generated traffic."
-  echo '-d    | --defined-tests [TESTS] to specify tests, which have to be included, for all available tests run [-d|--defined-tests] " ",
-  for specific tests: [-d|--defined-tests] "nfs_smb_simple https_simple" or use multiple parameter specification, for specific test from test file
-  use [-d|--defined-tests] https_simple/test_https_simple.py::test_https_simple, by default it runs http_simple tests'
-  echo "-t    | --defined-time [TIME] to specify traffic duration in tests (seconds)"
-  echo "-tg   | --trex-server-hostname [TRAFFIC GENERATOR] to specify traffic generator server for testing"
-  echo "-p1   | --trex-server-port-1 [TRAFFIC GENERATOR PORT] to specify traffic generator port"
-  echo "-p2   | --trex-server-port-2 [TRAFFIC GENERATOR PORT] to specify traffic generator port"
-  echo "-p    | --pcie [PCIE] to specify, on which pcie will be Suricata tested, use multiple parameter specification or [-p|--pcie] "0000:3b:00.0 0000:3b:00.1""
-  echo "-ht   | --heatup [TIME] to specify the duration for which to wait before measuring statistics"
-  echo "-f    | --filter [rules/norules] starts Suricata with/without rules"
-  echo "-pc   | --pcap [PATH] to specify the pcap file to send to Suricata. Also sets --defined-tests to *only* pcap_replay"
-  echo "-pm   | --prefer-trex-mode [MODE] to suggest a mode for TRex. If unavailable tests use their defaults."
-  echo "-fm   | --force-trex-mode [MODE] to force a TRex mode. If unavailable tests get skipped. Overrides -pm"
-  echo "-sb   | --trex-stl-burst [PPS] [COUNT] to send a fixed burst of COUNT packets at PPS in STL mode. Defaults: 200 000 PPS, 10 000 000 packets"
-  echo "-sh   | --suricata-hugepages [SIZE] to specify how much RAM to allocate in hugepages. Default is 6G."
-  echo "-fpu  | --force-pcap-upload to force re-upload of pcaps to the TRex server, even if identical files already exist."
-  echo "-sl   | --suite-log-level [LEVEL] to set the logging level for the test suite: a name (DEBUG, INFO, PROGRESS, WARNING, ERROR, CRITICAL) or a number (e.g. 25). Default: INFO"
-  echo "-sf   | --suite-log-file to enable writing suite logs to results/artefacts/<run>/pytest.log"
-  echo "-rl   | --run-label [LABEL] to set a custom name for the results directory, e.g. experimental-pr-1234-300s. Results are saved to results/artefacts/<label>/ instead of the default timestamp."
-  echo "-bs   | --binary-search <mm> <xm> <dr> <pr> to enable automatic throughput search"
-  echo "-bsh  | --binary-search-help to show help for binary search mode"
+  cat <<'EOF'
+Bash script to start pytest
+
+Usage:
+  ./pytest_start.sh [options]
+
+Connection:
+  -s    --server [SERVER]              Server where Suricata will be running
+  -tg   --trex-server-hostname [HOST]  Traffic generator server for testing
+  -p1   --trex-server-port-1 [PORT]    Traffic generator port 1
+  -p2   --trex-server-port-2 [PORT]    Traffic generator port 2
+  -p    --pcie [PCIE ...]              PCIe address(es) of the Suricata
+                                        interface(s), e.g. -p "0000:3b:00.0 0000:3b:00.1"
+
+Test selection:
+  -d    --defined-tests [TESTS ...]    Tests to run. For all available tests
+                                        run -d " "; for specific tests use
+                                        -d "nfs_smb_simple https_simple"; for a
+                                        specific test use
+                                        -d https_simple/test_https_simple.py::test_https_simple.
+                                        Default: http_simple tests
+  -t    --defined-time [TIME]          Traffic duration in seconds (default: 300)
+  -ht   --heatup [TIME]                Seconds to wait before measuring statistics
+  -f    --filter [rules/norules]       Start Suricata with/without rules
+  -pc   --pcap [PATH]                  Pcap file to send to Suricata. Also sets
+                                        --defined-tests to *only* pcap_replay
+
+Traffic:
+  -tm   --target-mac [MAC_ADDRESS]     Where to send traffic when not using ASTF TRex
+  -tv   --target-vlan [VLAN_ID]        VLAN tag to use for generated traffic (default: 0)
+  -pm   --prefer-trex-mode [MODE]      Suggest a mode for TRex. If unavailable,
+                                        tests use their defaults
+  -fm   --force-trex-mode [MODE]       Force a TRex mode. If unavailable, tests get
+                                        skipped. Overrides -pm
+  -sb   --trex-stl-burst [PPS] [COUNT] Send a fixed burst of COUNT packets at PPS
+                                        in STL mode.
+                                        Defaults: 200 000 PPS, 10 000 000 packets
+
+Suricata:
+  -sh   --suricata-hugepages [SIZE]    How much RAM to allocate in hugepages (default: 6G)
+
+Results and logging:
+  -sl   --suite-log-level [LEVEL]      Logging level for the suite: a name (DEBUG,
+                                        INFO, PROGRESS, WARNING, ERROR, CRITICAL)
+                                        or a number (e.g. 25). Default: INFO
+  -sf   --suite-log-file               Write suite logs to results/artefacts/<run>/pytest.log
+  -rl   --run-label [LABEL]            Custom name for the results directory, e.g.
+                                        experimental-pr-1234-300s. Results are saved to
+                                        results/artefacts/<label>/ instead of the
+                                        default timestamp
+  -fpu  --force-pcap-upload            Force re-upload of pcaps to the TRex server,
+                                        even if identical files already exist
+
+Advanced:
+  -bs   --binary-search <mm> <xm> <dr> <pr>
+                                        Enable automatic throughput search
+  -bsh  --binary-search-help           Show help for binary search mode
+
+Defaults for all options can also be set in a .env file in the repository
+root; see .env.example for the full list of variables
+(DEFAULT_SURICATA_SERVER, DEFAULT_TREX_SERVER, DEFAULT_TREX_PORT1, DEFAULT_TREX_PORT2,
+DEFAULT_PCIES, DEFAULT_TARGET_MAC, DEFAULT_TARGET_VLAN, DEFAULT_TESTS, DEFAULT_TIME, DEFAULT_HEATUP,
+DEFAULT_HUGEPAGES, DEFAULT_SUITE_LOG_FILE, LOGLEVEL).
+EOF
   exit 0
 }
 
 binary_search_usage(){
   set +x
-  echo "Bash script to start pytest"
-  echo "Binary search mode"
-  echo "Usage:"
-  echo "  -bs | --binary-search <mm> <xm> <dr> <pr>"
-  echo ""
-  echo "Positional arguments:"
-  echo "  mm  | min-multiplier  [FLOAT]  Lowest bound of the search range. (required)"
-  echo "  xm  | max-multiplier  [FLOAT]  Highest bound of the search range. (required)"
-  echo "  dr  | drop-rate       [FLOAT]  Max allowed drop rate in % <0,100>. (required)"
-  echo "  pr  | precision       [FLOAT]  Exit when (xm - mm) < precision. (required)"
-  echo ""
-  echo "Examples:"
-  echo "  -bs 0.0 10.0 1.0 0.05"
+  cat <<'EOF'
+Bash script to start pytest - binary search mode
+
+Usage:
+  -bs | --binary-search <mm> <xm> <dr> <pr>
+
+Positional arguments:
+  mm  | min-multiplier  [FLOAT]  Lowest bound of the search range. (required)
+  xm  | max-multiplier  [FLOAT]  Highest bound of the search range. (required)
+  dr  | drop-rate       [FLOAT]  Max allowed drop rate in % <0,100>. (required)
+  pr  | precision       [FLOAT]  Exit when (xm - mm) < precision. (required)
+
+Examples:
+  -bs 0.0 10.0 1.0 0.05
+EOF
   exit 0
 }
 
