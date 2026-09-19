@@ -1,5 +1,6 @@
 """
 Author(s):  Matyáš Sedmidubský <matyas.sedmidubsky@cesnet.cz>
+            Dávid Hanko <david.hanko@cesnet.cz>
 
 Copyright: (C) 2026 CESNET, z.s.p.o.
 SPDX-License-Identifier: BSD-3-Clause
@@ -73,6 +74,8 @@ class BaseTrexClientManager:
     multiplier: float | None = None
     duration: int | None = None
     _stf_config_path: Path | None = None
+    _selected_pcap: str | None = None
+    _selectable_pcaps: PcapList | None = None
 
     BASE_IPG_USEC = 12.0  # ~1 Gbps at 1500 bytes per packet
     PCAP_PATH_PREFIX = Path(__file__).parent / "pcaps"
@@ -130,6 +133,7 @@ class BaseTrexClientManager:
         trex_host = trex_gen[0].split(",")
         trex_hostname = trex_host[0]
         trex_pcie = trex_host[1]
+        self.trex_hostname = trex_hostname
 
         match self.mode:
             case TrexMode.STL:
@@ -144,6 +148,12 @@ class BaseTrexClientManager:
 
                 parent_dir_path = self.get_remote_data_path(Path(""))
                 mkdir_remote(parent_dir_path, trex_hostname)
+
+                # snapshot of the individual pcaps *before* the merge below,
+                # so that later `set_pcap` calls can re-select any one of
+                # them (the merge collapses them into a single replay pcap;
+                # set_pcap uploads the selected one on demand)
+                self._selectable_pcaps = list(self.pcaps)
 
                 # Merge first, then apply the VLAN edit to the single final pcap.
                 if len(self.pcaps) > 1:
@@ -237,11 +247,18 @@ class BaseTrexClientManager:
                         pcap_path, trex_hostname, pcap_remote_path, force=force_upload
                     )
 
+                # snapshot after VLAN renaming so that later `set_pcap` calls can
+                # re-select any pcap, not just the currently narrowed-down one
+                self._selectable_pcaps = list(self.pcaps)
+
                 profile_path = self.get_stf_profile()
                 profile_remote_path = self.get_remote_data_path(profile_path)
                 send_to_remote(
                     profile_path, trex_hostname, profile_remote_path, force=force_upload
                 )
+
+            case TrexMode.ASTF:
+                self._selectable_pcaps = list(self.pcaps)
 
     def get_remote_data_path(self, local_path: Path) -> Path:
         """
@@ -350,9 +367,13 @@ class BaseTrexClientManager:
         """
         return config
 
-    def set_props(self, multiplier: float, duration: int) -> None:
+    def set_props(self, multiplier: float, duration: int | None) -> None:
         """
         Sets the internal multiplier and duration for later use in other functions.
+
+        A `duration` of None makes STL traffic single-pass: every pcap is
+        transmitted exactly once, so the traffic volume is bounded by the
+        pcap content instead of time. ASTF and STF still require a duration.
         """
         self.multiplier = multiplier
         self.duration = duration
@@ -362,10 +383,79 @@ class BaseTrexClientManager:
             duration,
         )
 
+    @staticmethod
+    def _pcap_matches(pcap_entry: str, requested: str) -> bool:
+        """
+        Checks whether `requested` refers to the pcap file `pcap_entry`.
+
+        Matching is done by filename only, since the profile's pcaps all live
+        in `PCAP_PATH_PREFIX`. VLAN-tagged copies (`name.vlanNNN.pcap` created
+        by `edit_vlan`) are matched by their original name as well.
+        """
+        entry = Path(pcap_entry)
+        req = Path(requested)
+        if entry.name == req.name:
+            return True
+        return entry.stem.startswith(f"{req.stem}.vlan")
+
+    def set_pcap(self, pcap: str | Path) -> None:
+        """
+        Restricts traffic to a single pcap out of the profile's pcap list.
+
+        `pcap` must refer to one of the profile's pcaps, either by the original
+        filename or by the VLAN-tagged one. Selecting a different pcap later is
+        supported - the list is always re-filtered from the snapshot taken in
+        `__init__` (before the STL merge / after the STF VLAN renaming).
+
+        STL mode merges all profile pcaps into one replay pcap in `__init__`,
+        so the selected pcap is VLAN-tagged and uploaded on demand here.
+        STF mode builds its profile from the pcap list upfront, so the profile
+        is rebuilt and re-uploaded here instead.
+
+        Raises a ValueError if `pcap` is not part of the profile.
+        """
+        if self._selected_pcap is not None and self._pcap_matches(
+            self._selected_pcap, pcap
+        ):
+            return
+
+        selectable = (
+            self._selectable_pcaps if self._selectable_pcaps is not None else self.pcaps
+        )
+        selected = [p for p in selectable if self._pcap_matches(p.path, pcap)]
+        if not selected:
+            raise ValueError(
+                f"'{pcap}' is not one of this profile's pcaps: "
+                f"{[p.path.name for p in selectable]}"
+            )
+        self._selected_pcap = str(pcap)
+        self.pcaps = selected
+        logger.debug("TRex traffic restricted to pcap: %s", selected[0].path.name)
+
+        if self.mode == TrexMode.STL:
+            pcap_path = self.pcaps[0].path
+            if self.vlan_id != 0:
+                pcap_path = Path(edit_vlan(str(pcap_path), self.vlan_id))
+                self.pcaps[0] = Pcap(pcap_path, self.pcaps[0].weight)
+            send_to_remote(
+                pcap_path,
+                self.trex_hostname,
+                self.get_remote_data_path(pcap_path),
+                force=self.request.config.getoption("--force-pcap-upload"),
+            )
+        elif self.mode == TrexMode.STF:
+            self._stf_config_path = None
+            profile_path = self.get_stf_profile()
+            send_to_remote(
+                profile_path,
+                self.trex_hostname,
+                self.get_remote_data_path(profile_path),
+            )
+
     def prepare(self) -> None:
         """
         Reset TRex instances and load profiles.
-        Will raise a ValueError if `multiplier` and `duration` haven't been set with `set_props`
+        Will raise a ValueError if `multiplier` hasn't been set with `set_props`
         """
 
         logger.debug("Preparing TRex traffic: mode=%s", self.mode.name)
@@ -380,10 +470,8 @@ class BaseTrexClientManager:
                 self.client.reset()
                 self.server.reset()
 
-                if self.multiplier is None or self.duration is None:
-                    raise ValueError(
-                        "you need to specify multiplier and duration with `set_props`"
-                    )
+                if self.multiplier is None:
+                    raise ValueError("you need to specify multiplier with `set_props`")
 
                 profile = self.get_astf_profile(self.multiplier)
                 client_handler: ASTFClient = self.client.get_handler()
@@ -404,7 +492,9 @@ class BaseTrexClientManager:
         """
         Start traffic from TRex and block until finished.
         Optionally only start traffic with `blocking=False`.
-        Will raise a ValueError if `multiplier` and `duration` haven't been set with `set_props`
+        Will raise a ValueError if `multiplier` hasn't been set with `set_props`.
+        ASTF and STF modes additionally require a `duration`; STL accepts
+        `duration=None` for a single-pass replay bounded by the pcap content.
 
         `heatup` (seconds) and `on_measurement_start` let the caller sample
         TRex's own transmit counters at the start of the measurement window
@@ -422,10 +512,8 @@ class BaseTrexClientManager:
             blocking,
         )
 
-        if self.multiplier is None or self.duration is None:
-            raise ValueError(
-                "you need to specify multiplier and duration with `set_props`"
-            )
+        if self.multiplier is None:
+            raise ValueError("you need to specify multiplier with `set_props`")
 
         def _mark_measurement_start() -> None:
             if not blocking:
@@ -490,16 +578,23 @@ class BaseTrexClientManager:
                     pcap = self.pcaps[0]
                     start = time()
                     elapsed = 0
-                    while elapsed < self.duration:
+                    # with a duration set we replay the pcap until it elapses;
+                    # with duration=None (single pass, functional tests) it is
+                    # transmitted exactly once, bounded by the pcap content
+                    while self.duration is None or elapsed < self.duration:
                         try:
-                            client.push_remote(
-                                pcap_filename=str(self.get_remote_data_path(pcap.path)),
-                                ports=[0],
-                                ipg_usec=self.BASE_IPG_USEC / pcap.weight,
-                                speedup=self.multiplier,
-                                count=1,
-                                duration=int(self.duration - elapsed),
-                            )
+                            push_args = {
+                                "pcap_filename": str(
+                                    self.get_remote_data_path(pcap.path)
+                                ),
+                                "ports": [0],
+                                "ipg_usec": self.BASE_IPG_USEC / pcap.weight,
+                                "speedup": self.multiplier,
+                                "count": 1,
+                            }
+                            if self.duration is not None:
+                                push_args["duration"] = int(self.duration - elapsed)
+                            client.push_remote(**push_args)
                         except TRexError:
                             # wait if port was not cleared yet
                             sleep(0.05)
@@ -507,13 +602,19 @@ class BaseTrexClientManager:
                         if elapsed >= heatup and on_measurement_start is not None:
                             on_measurement_start()
                             on_measurement_start = None
+                        if self.duration is None:
+                            break  # single pass done
 
             case TrexMode.ASTF:
+                if self.duration is None:
+                    raise ValueError("ASTF mode requires a duration, use `set_props`")
                 self.server.start()
                 self.client.start(duration=self.duration)
                 _mark_measurement_start()
 
             case TrexMode.STF:
+                if self.duration is None:
+                    raise ValueError("STF mode requires a duration, use `set_props`")
                 if self.duration < 30:
                     warnings.warn(
                         UserWarning(
