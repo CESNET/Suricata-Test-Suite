@@ -9,7 +9,7 @@ Generate the pcaps used by the RSS functional test (test_rss.py).
 Three pcaps are produced (see STAGE_PCAPS in the test):
 
 * `rss_flow_a_1000p.pcap`    - single flow A, 1000 packets
-* `rss_flows_bcd_6000p.pcap` - three distinct flows B/C/D, 6000 packets
+* `rss_flows_bcdef_10000p.pcap` - five distinct flows B/C/D/E/F, 10000 packets
   (round-robin interleaved, 2000 packets per flow)
 * `rss_flow_ra_500p.pcap`    - reversed flow rA, the exact tuple mirror
   of flow A, 500 packets (stage 3 symmetric-hash check)
@@ -34,17 +34,19 @@ from scapy.all import Ether, IP, TCP, wrpcap
 # packet budget per pcap (must match STAGE_PACKETS in test_rss.py)
 COUNT_A = 1000
 COUNT_RA = 500
-COUNT_BCD_PER_FLOW = 2000  # x3 flows = 6000
+COUNT_BCDEF_PER_FLOW = 2000  # x5 flows = 10000
 
 # fixed 5-tuple of flow A and its exact mirror rA
 FLOW_A = ("16.0.0.1", 1024, "48.0.0.1", 80)
 FLOW_RA = (FLOW_A[2], FLOW_A[3], FLOW_A[0], FLOW_A[1])
 
-# three distinct flows for the queue-spread stage (RFC 5737 addresses)
-FLOWS_BCD = [
+# five distinct flows for the queue-spread stage (RFC 5737 addresses)
+FLOWS_BCDEF = [
     ("203.0.113.1", 41000, "198.51.100.7", 2101),
     ("192.0.2.2", 52000, "198.51.100.9", 2102),
     ("198.18.0.11", 63000, "203.0.113.11", 2103),
+    ("198.51.100.25", 61000, "203.0.113.80", 2104),
+    ("192.0.2.50", 59000, "198.51.100.128", 2105),
 ]
 
 # placeholder MACs; TRex rewrites the destination MAC at send time
@@ -57,7 +59,7 @@ ISN_SERVER = 1
 
 # deterministic inter-packet gaps (seconds)
 IPG_FLOW = 0.0001  # A / rA: 100 us -> 10 kpps
-IPG_BCD = 0.001  # per-flow grid in the B/C/D interleave
+IPG_BCD = 0.001  # per-flow grid in the B/C/D/E/F interleave
 BCD_FLOW_OFFSET = 0.5  # flow k starts k * offset later
 
 # payload shaping
@@ -124,16 +126,16 @@ def build_flow_packets(src_ip, sport, dst_ip, dport, count, tag):
     return packets
 
 
-def build_bcd_packets():
+def build_bcdef_packets():
     """Build the interleaved multi-flow pcap.
 
-    Each of the three flows carries a handshake plus one-direction
+    Each of the five flows carries a handshake plus one-direction
     data (4-byte big-endian index + X padding). Flows start
     BCD_FLOW_OFFSET apart and are merged by timestamp, so the
     replayed traffic overlaps in time.
     """
     flow_packets = []
-    for flow_idx, (src_ip, sport, dst_ip, dport) in enumerate(FLOWS_BCD):
+    for flow_idx, (src_ip, sport, dst_ip, dport) in enumerate(FLOWS_BCDEF):
         packets = []
         t = flow_idx * BCD_FLOW_OFFSET
 
@@ -147,7 +149,7 @@ def build_bcd_packets():
         emit(_frame(dst_ip, dport, src_ip, sport, "SA", ISN_SERVER, ISN_CLIENT + 1))
         emit(_frame(src_ip, sport, dst_ip, dport, "A", ISN_CLIENT + 1, ISN_SERVER + 1))
 
-        data_count = COUNT_BCD_PER_FLOW - 3
+        data_count = COUNT_BCDEF_PER_FLOW - 3
         seq = ISN_CLIENT + 1
         for i in range(data_count):
             payload = struct.pack(">I", i) + b"X" * (BCD_DATA_LEN - 4)
@@ -167,7 +169,7 @@ def main() -> None:
     outputs = [
         (build_flow_packets(*FLOW_A, COUNT_A, "A"), "rss_flow_a_1000p.pcap"),
         (build_flow_packets(*FLOW_RA, COUNT_RA, "rA"), "rss_flow_ra_500p.pcap"),
-        (build_bcd_packets(), "rss_flows_bcd_6000p.pcap"),
+        (build_bcdef_packets(), "rss_flows_bcdef_10000p.pcap"),
     ]
 
     for packets, name in outputs:

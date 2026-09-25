@@ -12,7 +12,7 @@ selected and run in isolation via its node ID (use --collect-only to find
 it), e.g. `functional_tests/rss/test_rss.py::test_rss[params0-2]`:
 
 * stage 1: single flow A is handled entirely by one worker,
-* stage 2: three distinct flows B/C/D spread over multiple workers,
+* stage 2: five distinct flows B/C/D/E/F spread over multiple workers,
 * stage 3: reversed flow rA (exact mirror of A's tuple) shares A's worker,
   i.e. the NIC computes a symmetric RSS hash. The reference queue is
   learned by replaying flow A first, so the stage does not depend on
@@ -46,13 +46,13 @@ logger = logging.getLogger(__name__)
 # (small tolerance allows for steering warm-up losses)
 STAGE_PCAPS = {
     1: "rss_flow_a_1000p.pcap",
-    2: "rss_flows_bcd_6000p.pcap",
+    2: "rss_flows_bcdef_10000p.pcap",
     3: "rss_flow_ra_500p.pcap",
 }
 
 STAGE_PACKETS = {
     1: 1000,
-    2: 6000,
+    2: 10000,
     3: 500,
 }
 
@@ -184,7 +184,8 @@ def test_rss(
             )
         case 2:
             assert len(placement) > 1, (
-                f"stage 2: flows B/C/D expected on more than one queue, got {placement}"
+                f"stage 2: flows B/C/D/E/F expected on more than one queue, "
+                f"got {placement}"
             )
         case 3:
             ra_queues = set(placement)

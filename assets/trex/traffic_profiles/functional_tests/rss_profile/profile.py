@@ -16,7 +16,7 @@ class RssProfile(
     BaseTrexClientManager,
     pcaps=[
         ("rss_flow_a_1000p.pcap", 1),
-        ("rss_flows_bcd_6000p.pcap", 1),
+        ("rss_flows_bcdef_10000p.pcap", 1),
         ("rss_flow_ra_500p.pcap", 1),
     ],
 ):
