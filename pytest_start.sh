@@ -10,7 +10,10 @@
 
 
 
-set -xe
+set -e
+if [ "$LOGLEVEL" = "DEBUG" ]; then
+    set -x
+fi
 
 usage(){
   set +x
@@ -159,8 +162,8 @@ while [ "$#" -gt 0 ]; do
         shift 4
         ;;
     --) shift; read -a extra_args <<< "$@"; break ;;
-    *) >&2 echo unsupported option: $1
-      usage
+    *) >&2 echo "unsupported option: $1"
+      (usage) # create subshell to avoid `exit 0`
       exit 1
       ;;
   esac

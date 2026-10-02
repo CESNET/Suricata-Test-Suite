@@ -8,11 +8,10 @@ TRex profile template for use in Suricata-Test-Suite
 """
 
 import logging
-import os
 import warnings
 from pathlib import Path
 from time import sleep, time
-from typing import Callable, Dict, Literal, NamedTuple, Self
+from typing import Any, Callable, Literal, NamedTuple, Self, cast
 
 from lbr_testsuite.trex import (
     TRexAdvancedStateful,
@@ -27,6 +26,7 @@ from lbr_testsuite.trex import (
 # against in `isinstance()` (e.g. STLClient.add_streams). Importing from
 # `lbr_trex_client.interactive.trex.*` instead would create distinct class
 # objects and break those checks.
+from conftest import fmt_bytes, fmt_thousands
 from trex.astf import trex_astf_profile
 from trex.astf.trex_astf_client import ASTFClient
 from trex.common.trex_exceptions import TRexError
@@ -35,14 +35,13 @@ from trex_client import CTRexClient
 from pytest import FixtureRequest
 
 from util.add_vlan import edit_vlan
-from util.config_builder import ConfigBuilder
+from util.cache_util import cache_path, try_cache
+from util.config_builder import DEFAULT_TREX_CONF, ConfigBuilder
 from util.suri_util import RunInfo
 from util.trex_util import (
-    PcapList,
     TrexMode,
+    get_merged_pcap,
     get_trex_mac,
-    merge_pcaps,
-    merged_pcap_name,
     mkdir_remote,
     send_to_remote,
 )
@@ -63,13 +62,13 @@ class BaseTrexClientManager:
 
     Subclasses are created as `MyProfile(BaseTrexClientManager, pcaps)`.
 
-    `pcaps: PcapList` is a list of (str, int) tuples, where int is:
+    `pcaps: list[Pcap]`, where `weight` is:
         - cps in STF
         - cps in ASTF
         - the divisor for `self.BASE_IPG_USEC` in STL
     """
 
-    pcaps: PcapList
+    pcaps: list[Pcap]
     multiplier: float | None = None
     duration: int | None = None
     _stf_config_path: Path | None = None
@@ -84,7 +83,7 @@ class BaseTrexClientManager:
             )
         return super().__new__(cls)
 
-    def __init_subclass__(cls, pcaps: PcapList) -> None:
+    def __init_subclass__(cls, pcaps: list[Pcap]) -> None:
         cls.profile_pcaps = pcaps
 
     def __init__(
@@ -97,13 +96,13 @@ class BaseTrexClientManager:
     ) -> None:
         # self.pcaps holds (absolute local Path, weight) Pcap objects; the
         # class-level `pcaps`/`profile_pcaps` are (relative str, weight).
-        self.pcaps: list[Pcap] = [
+        self.pcaps = [
             Pcap(self.PCAP_PATH_PREFIX / p[0], p[1]) for p in self.profile_pcaps
         ]
         self.mode = mode
         self.vlan_id = target_vlan
         self.request = request
-        self.multiplier: float | None = None
+        self.multiplier = None
 
         # warn once per profile instead of on every run()/multiplier iteration
         if (
@@ -123,19 +122,22 @@ class BaseTrexClientManager:
             "Initializing TRex client manager: mode=%s vlan_id=%d pcaps=%s",
             self.mode.name,
             self.vlan_id,
-            [p.path for p in self.pcaps],
+            [str(p.path.relative_to(self.PCAP_PATH_PREFIX)) for p in self.pcaps],
         )
 
         trex_gen = request.config.getoption("--trex-generator")
+        assert trex_gen is not None
         trex_host = trex_gen[0].split(",")
         trex_hostname = trex_host[0]
         trex_pcie = trex_host[1]
 
         match self.mode:
             case TrexMode.STL:
-                self.stl_generator: TRexStateless = manager.request_stateless(request)
+                self.stl_generator = cast(
+                    TRexStateless, manager.request_stateless(request)
+                )
                 self.trex_version = (
-                    self.stl_generator.get_handler().get_server_version()["version"]
+                    self.stl_generator.get_handler().get_server_version()["version"]  # pyright: ignore[reportOptionalMemberAccess]
                 )
 
                 self.stl_generator.set_dst_mac(target_mac)
@@ -151,12 +153,7 @@ class BaseTrexClientManager:
                     weights = [float(p.weight) for p in self.pcaps]
                     # Deterministic name so rsync skips upload on reruns;
                     # use --force-pcap-upload to bypass when source pcaps change.
-                    merged_name = merged_pcap_name(local_paths, weights)
-                    merged_path = merge_pcaps(
-                        local_paths,
-                        weights,
-                        self.PCAP_PATH_PREFIX / merged_name,
-                    )
+                    merged_path = get_merged_pcap(local_paths, weights)
                     self.pcaps = [Pcap(merged_path, sum(weights))]
 
                 if target_vlan != 0:
@@ -172,17 +169,21 @@ class BaseTrexClientManager:
                     pcap.path,
                     trex_hostname,
                     pcap_remote_path,
-                    force=self.request.config.getoption("--force-pcap-upload"),
+                    force=cast(
+                        bool, self.request.config.getoption("--force-pcap-upload")
+                    ),
                 )
 
             case TrexMode.ASTF:
-                self.client: TRexAdvancedStateful = manager.request_stateful(
-                    request, role="client"
+                self.client = cast(
+                    TRexAdvancedStateful,
+                    manager.request_stateful(request, role="client"),
                 )
-                self.server: TRexAdvancedStateful = manager.request_stateful(
-                    request, role="server"
+                self.server = cast(
+                    TRexAdvancedStateful,
+                    manager.request_stateful(request, role="server"),
                 )
-                self.trex_version = self.server.get_handler().get_server_version()[
+                self.trex_version = self.server.get_handler().get_server_version()[  # pyright: ignore[reportOptionalMemberAccess]
                     "version"
                 ]
 
@@ -201,10 +202,9 @@ class BaseTrexClientManager:
                 mkdir_remote(parent_dir_path, trex_hostname)
 
                 logger.info("Uploading pcaps to TRex server. This might take a while.")
-                os.makedirs("tmp", exist_ok=True)
                 config = ConfigBuilder(
-                    "tmp/trex_cfg.yaml",
-                    str(Path(__file__).parent / "default_trex.yaml"),
+                    str(cache_path("trex_cfg.yaml", persistent=False)),
+                    str(DEFAULT_TREX_CONF),
                 )
                 config.set_option("[0].interfaces", [trex_pcie, "dummy"])
                 config.set_option("[0].port_info[.=dest_mac].dest_mac", target_mac)
@@ -222,7 +222,9 @@ class BaseTrexClientManager:
                 config_path = Path(config.build())
                 config_remote_path = self.get_remote_data_path(config_path)
                 self.remote_stf_config = config_remote_path
-                force_upload = self.request.config.getoption("--force-pcap-upload")
+                force_upload = cast(
+                    bool, self.request.config.getoption("--force-pcap-upload")
+                )
                 send_to_remote(
                     config_path, trex_hostname, config_remote_path, force=force_upload
                 )
@@ -295,12 +297,23 @@ class BaseTrexClientManager:
         """
         Returns the *local* path to the stateful profile config.
         The remote path is handled by `get_remote_data_path`.
+
+        The profile is cached under `.cache/persistent/` under a name derived
+        from its inputs (pcap names and weights), so it is only regenerated when
+        the inputs change; delete `.cache/` to force regeneration.
         """
         if self._stf_config_path is not None:
             return self._stf_config_path
 
-        self._stf_config_path = Path("tmp/stf_trex_profile.yaml").absolute()
-        os.makedirs(self._stf_config_path.parent, exist_ok=True)
+        key_parts: list[object] = [str(p.path.name) for p in self.pcaps]
+        key_parts += [str(p.weight) for p in self.pcaps]
+
+        cached_profile_path = try_cache("stf_profile.yaml", key_parts)
+        if cached_profile_path is not None:
+            self._stf_config_path = cached_profile_path
+            return self._stf_config_path
+
+        self._stf_config_path = cache_path("stf_profile.yaml", *key_parts)
         with open(self._stf_config_path, mode="w+") as f:
             f.write("[]\n")
         profile = ConfigBuilder(str(self._stf_config_path), str(self._stf_config_path))
@@ -340,7 +353,6 @@ class BaseTrexClientManager:
                 },
             )
 
-        os.makedirs("tmp", exist_ok=True)
         profile.build()
         return self._stf_config_path
 
@@ -386,8 +398,8 @@ class BaseTrexClientManager:
                     )
 
                 profile = self.get_astf_profile(self.multiplier)
-                client_handler: ASTFClient = self.client.get_handler()
-                server_handler: ASTFClient = self.server.get_handler()
+                client_handler = cast(ASTFClient, self.client.get_handler())
+                server_handler = cast(ASTFClient, self.server.get_handler())
                 client_handler.load_profile(profile)
                 server_handler.load_profile(profile)
 
@@ -439,7 +451,7 @@ class BaseTrexClientManager:
 
         match self.mode:
             case TrexMode.STL:
-                client: STLClient = self.stl_generator.get_handler()
+                client = cast(STLClient, self.stl_generator.get_handler())
                 burst = self.request.config.getoption("--trex-stl-burst")
 
                 if burst is not None:
@@ -543,10 +555,11 @@ class BaseTrexClientManager:
         match self.mode:
             case TrexMode.STL:
                 self.stl_generator.wait_on_traffic()
+                self.stop()
 
             case TrexMode.ASTF:
                 self.client.wait_on_traffic()
-                self.server.stop()
+                self.stop()
 
             case TrexMode.STF:
                 assert self.duration is not None
@@ -558,7 +571,12 @@ class BaseTrexClientManager:
                 self.stop()
 
     def stop(self) -> None:
-        logger.info("Stopping TRex traffic: mode=%s", self.mode.name)
+        logger.info(
+            "Stopping TRex traffic (%s, %s pkts, %s)",
+            self.mode.name,
+            fmt_thousands(self.get_tx_packets()),
+            fmt_bytes(self.get_tx_bytes()),
+        )
         match self.mode:
             case TrexMode.STL:
                 self.stl_generator.stop()
@@ -593,31 +611,41 @@ class BaseTrexClientManager:
         """Current cumulative TRex transmit packet count."""
         match self.mode:
             case TrexMode.STL:
-                return int(self.stl_generator.get_stats()["total"]["opackets"])
-            case TrexMode.ASTF:
-                return int(self.server.get_stats()["total"]["opackets"]) + int(
-                    self.client.get_stats()["total"]["opackets"]
+                return int(
+                    self.stl_generator.get_stats().get("total", {}).get("opackets", 0)
                 )
+            case TrexMode.ASTF:
+                return int(
+                    self.server.get_stats().get("total", {}).get("opackets", 0)
+                ) + int(self.client.get_stats().get("total", {}).get("opackets", 0))
             case TrexMode.STF:
-                data = self.stf_generator.get_result_obj().get_latest_dump()[
-                    "trex-global"
-                ]["data"]
-                return int(data["m_total_tx_pkts"])
+                return int(
+                    self.stf_generator.get_result_obj()
+                    .get_latest_dump()
+                    .get("trex-global", {})
+                    .get("data", {})
+                    .get("m_total_tx_pkts", 0)
+                )
 
     def get_tx_bytes(self) -> int:
         """Current cumulative TRex transmit byte count."""
         match self.mode:
             case TrexMode.STL:
-                return int(self.stl_generator.get_stats()["total"]["obytes"])
-            case TrexMode.ASTF:
-                return int(self.server.get_stats()["total"]["obytes"]) + int(
-                    self.client.get_stats()["total"]["obytes"]
+                return int(
+                    self.stl_generator.get_stats().get("total", {}).get("obytes", 0)
                 )
+            case TrexMode.ASTF:
+                return int(
+                    self.server.get_stats().get("total", {}).get("obytes", 0)
+                ) + int(self.client.get_stats().get("total", {}).get("obytes", 0))
             case TrexMode.STF:
-                data = self.stf_generator.get_result_obj().get_latest_dump()[
-                    "trex-global"
-                ]["data"]
-                return int(data["m_total_tx_bytes"])
+                return int(
+                    self.stf_generator.get_result_obj()
+                    .get_latest_dump()
+                    .get("trex-global", {})
+                    .get("data", {})
+                    .get("m_total_tx_bytes", 0)
+                )
 
     def get_tx_pps(self) -> float:
         """Current instantaneous TRex transmit rate (packets per second).
@@ -629,18 +657,23 @@ class BaseTrexClientManager:
         """
         match self.mode:
             case TrexMode.STL:
-                return float(self.stl_generator.get_stats()["total"]["tx_pps"])
-            case TrexMode.ASTF:
-                return float(self.server.get_stats()["total"]["tx_pps"]) + float(
-                    self.client.get_stats()["total"]["tx_pps"]
+                return float(
+                    self.stl_generator.get_stats().get("total", {}).get("tx_pps", 0.0)
                 )
+            case TrexMode.ASTF:
+                return float(
+                    self.server.get_stats().get("total", {}).get("tx_pps", 0.0)
+                ) + float(self.client.get_stats().get("total", {}).get("tx_pps", 0.0))
             case TrexMode.STF:
-                data = self.stf_generator.get_result_obj().get_latest_dump()[
-                    "trex-global"
-                ]["data"]
-                return float(data.get("m_tx_pps", 0.0))
+                return float(
+                    self.stf_generator.get_result_obj()
+                    .get_latest_dump()
+                    .get("trex-global", {})
+                    .get("data", {})
+                    .get("m_tx_pps", 0.0)
+                )
 
-    def get_stats(self, role: Literal["server"] | Literal["client"] = "server") -> Dict:
+    def get_stats(self, role: Literal["server", "client"] = "server") -> dict[str, Any]:
         assert role in ("server", "client")
 
         match self.mode:
@@ -667,7 +700,7 @@ class BaseAdHocTrex(BaseTrexClientManager, pcaps=[]):
 
     def __init__(
         self,
-        pcaps: PcapList,
+        pcaps: list[Pcap],
         manager: TRexManager,
         request: FixtureRequest,
         target_mac: str,
