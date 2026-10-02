@@ -17,7 +17,7 @@ import os.path
 import matplotlib.pyplot as plt
 
 from file_read_backwards import FileReadBackwards
-from typing import List
+from typing import Any, List
 from pathlib import Path
 from shutil import copy as copy_content
 
@@ -92,7 +92,9 @@ def get_rx_packets_from_file(file: str, skip=0) -> int:
     pkts = jq.compile(".stats.decoder.pkts").input(json_loaded).first()
 
     try:
-        return int(pkts) - get_rx_packets_until(file, skip)
+        skipped = get_rx_packets_until(file, skip)
+        logger.debug("Ignored %d packets", skipped)
+        return int(pkts) - skipped
     except ValueError:
         return 0
 
@@ -102,7 +104,9 @@ def get_rx_bytes_from_file(file: str, skip=0) -> int:
     bytes = jq.compile(".stats.decoder.bytes").input(json_loaded).first()
 
     try:
-        return int(bytes) - get_rx_bytes_until(file, skip)
+        skipped = get_rx_bytes_until(file, skip)
+        logger.debug("Ignored %d bytes", skipped)
+        return int(bytes) - skipped
     except ValueError:
         return 0
 
@@ -160,7 +164,9 @@ def get_flow_filtered_packets_from_file(file: str, skip=0) -> int:
     )
 
     try:
-        return int(flow_filtered) - get_flow_filtered_packets_until(file, skip)
+        skipped = get_flow_filtered_packets_until(file, skip)
+        logger.debug("Ignored %d flow filtered packets", skipped)
+        return int(flow_filtered) - skipped
     except (ValueError, TypeError):
         return 0
 
@@ -215,7 +221,9 @@ def convert_multiplier_to_str(multiplier: float) -> str:
     )
 
 
-def save_stats(params, request, test_info: TestInfo, run_info: RunInfo):
+def save_stats(
+    params, request, test_info: TestInfo, run_info: RunInfo
+) -> dict[str, Any]:
     multiplier_str: str = convert_multiplier_to_str(run_info.multiplier)
     output_dir: str = os.path.join(test_info.result_path, multiplier_str)
     aggregated_output_path = os.path.join(test_info.result_path, "aggregated.json")
@@ -233,7 +241,7 @@ def save_stats(params, request, test_info: TestInfo, run_info: RunInfo):
 
     save_suricata_stats(request, output_dir)
     save_trex_stats(run_info, output_dir)
-    save_aggregated_stats(
+    return save_aggregated_stats(
         test_info, run_info, output_dir, aggregated_output_path, params
     )
 
@@ -291,7 +299,7 @@ def save_aggregated_stats(
     suri_stats_path: str,
     aggregated_output_path: str,
     params,
-):
+) -> dict[str, Any]:
     logger.debug("Saving aggregated stats to %s", aggregated_output_path)
 
     out_params = params.copy()
@@ -328,6 +336,8 @@ def save_aggregated_stats(
     with open(aggregated_output_path, "a+") as output_file:
         json.dump(output, output_file)
         output_file.write("\n")
+
+    return output
 
 
 def save_test_info(request, test_info: TestInfo, aggregated_output_path: str) -> None:
@@ -387,7 +397,9 @@ def make_graph(
     plt.savefig(path_to_graph)
 
 
-def get_trex_suri_stats(path: str = None, stats_to_get: List[str] = None):
+def get_trex_suri_stats(
+    result_path: str | None = None, stats_to_get: List[str] | None = None
+):
     """
     Gets stats from the latest result (or specified path) in the results/artefacts directory.
 
@@ -400,7 +412,7 @@ def get_trex_suri_stats(path: str = None, stats_to_get: List[str] = None):
     can trace where the data originated.
 
     Inputs:
-        path         -> Optional path to a specific result folder (e.g.
+        result_path  -> Optional path to a specific result folder (e.g.
                         "results/artefacts/2026-07-03-12:00/test_https_simple").
                         If None, the `results/artefacts/latest` symlink is resolved.
         stats_to_get -> List of stat names to extract (e.g., ["suricata_rx_packets",
@@ -408,16 +420,15 @@ def get_trex_suri_stats(path: str = None, stats_to_get: List[str] = None):
     Output:
         Dictionary with requested stats and their values, plus a "_source_path" key.
     """
-    if path is None:
+    if result_path is None:
         latest_symlink = (
             Path(__file__).resolve().parent.parent / "results" / "artefacts" / "latest"
         )
         if not latest_symlink.exists():
             raise GetStatsError(f"Latest symlink does not exist: {latest_symlink}")
-        path = str(latest_symlink.resolve())
+        result_path = str(latest_symlink.resolve())
 
-    path = Path(path)
-    path = path / "aggregated.json"
+    path = Path(result_path) / "aggregated.json"
     if not path.exists():
         raise GetStatsError(f"No aggregated.json found in: {path}")
 

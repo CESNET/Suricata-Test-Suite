@@ -11,7 +11,6 @@ import os
 import subprocess
 from enum import Enum
 from pathlib import Path
-from typing import Sequence, Tuple
 from scapy.all import PcapWriter, PcapReader
 
 import pytest
@@ -24,9 +23,6 @@ class TrexMode(Enum):
     STL = 0
     ASTF = 1
     STF = 2
-
-
-PcapList = Sequence[Tuple[str, int | float]]
 
 
 def _packet_generator(
@@ -148,6 +144,8 @@ def merge_pcaps(
     total_w = sum(weights)
     if total_w <= 0:
         raise ValueError("sum of weights must be positive")
+
+    logger.info("Merging %d pcaps. This might take a while.", len(pcap_paths))
 
     # weighted round-robin: per-round packet count proportional to weight share
     quotas = [w / total_w for w in weights]

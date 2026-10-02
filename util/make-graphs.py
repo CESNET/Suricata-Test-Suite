@@ -135,7 +135,7 @@ def main(*args):
                 if agg_dict.get("event", "") == "test_results":
                     parameters = {
                         key.split(".")[-1]: value
-                        for (key, value) in agg_dict.get("parameters").items()
+                        for (key, value) in agg_dict.get("parameters", {}).items()
                     }
                     process_results_line(x_axis, y_axis, agg_dict)
                 if agg_dict.get("event", "") == "test_info":

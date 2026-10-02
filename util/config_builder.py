@@ -8,7 +8,7 @@ SPDX-License-Identifier: BSD-3-Clause
 import logging
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Self
+from typing import Any, Self
 
 from ruamel.yaml import YAML
 from yamlpath import Processor
@@ -17,8 +17,19 @@ from yamlpath.wrappers import ConsolePrinter, NodeCoords
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SURICATA_CONF = Path(__file__).resolve().parent.parent / "default_suricata.yaml"
+DEFAULT_TREX_CONF = (
+    Path(__file__).resolve().parent.parent
+    / "assets"
+    / "trex"
+    / "traffic_profiles"
+    / "default_trex.yaml"
+)
 
-def update_recursively(destination: Dict, source: Dict, extend_lists=True) -> Dict:
+
+def update_recursively(
+    destination: dict[str, Any], source: dict[str, Any], extend_lists=True
+) -> dict[str, Any]:
     for k, v in source.items():
         if isinstance(v, dict):
             existing = destination.get(k)
@@ -40,6 +51,23 @@ class ConfigBuilder:
     __yaml: YAML
     __proc: Processor
     output: str
+
+    def __init__(self, output: str, input_path: str) -> None:
+        self.output = output
+        logger.debug(
+            "Loading configuration builder: output=%s input=%s", output, input_path
+        )
+
+        self.__yaml = YAML()
+        self.__yaml.indent(sequence=4, offset=2)
+        self.__yaml.preserve_quotes = True
+
+        with open(input_path, mode="r") as f:
+            data = self.__yaml.load(f)
+
+        log_args = SimpleNamespace(quiet=True, verbose=False, debug=False)
+        log = ConsolePrinter(log_args)
+        self.__proc = Processor(log, data)
 
     def add_option(self, key: str, value: Any) -> Self:
         """
@@ -112,7 +140,7 @@ class ConfigBuilder:
 
         return self
 
-    def with_params(self, params: Dict) -> Self:
+    def with_params(self, params: dict[str, Any]) -> Self:
         for k, v in params.items():
             if k == "queues" or k == "rx_descriptors":
                 continue
@@ -126,24 +154,3 @@ class ConfigBuilder:
         self.__yaml.dump(self.__proc.data, out)
 
         return self.output
-
-    def __init__(self, output: str, input: str | None = None) -> None:
-        self.output = output
-        logger.debug("Loading configuration builder: output=%s input=%s", output, input)
-
-        self.__yaml = YAML()
-        self.__yaml.indent(sequence=4, offset=2)
-        self.__yaml.preserve_quotes = True
-
-        if input is not None:
-            with open(input, mode="r") as f:
-                data = self.__yaml.load(f)
-        else:
-            root_dir = Path(__file__).resolve().parent.parent
-            default_config_path = root_dir / "default_suricata.yaml"
-            with default_config_path.open(mode="r") as f:
-                data = self.__yaml.load(f)
-
-        log_args = SimpleNamespace(quiet=True, verbose=False, debug=False)
-        log = ConsolePrinter(log_args)
-        self.__proc = Processor(log, data)
