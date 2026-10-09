@@ -360,7 +360,7 @@ suri_cmd_params = {"capture-mode": ["dpdk"]}
 
 filter = {
     "dpdk": [lambda x: x["dpdk.interfaces[0].mtu"] <= 3000],
-    "af-packet": [lambda x: True]
+    "af-packet": [lambda x: True],
 }
 ```
 
@@ -396,7 +396,7 @@ filter = {
         lambda x: x["dpdk.interfaces[0].mtu"] <= 3000,
         lambda x: x["dpdk.interfaces[0].rx-descriptors"] >= 4096,
     ],
-    "af-packet": [lambda x: True]
+    "af-packet": [lambda x: True],
 }
 ```
 

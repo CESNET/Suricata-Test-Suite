@@ -10,6 +10,7 @@ SPDX-License-Identifier: BSD-3-Clause
 
 import argparse
 import logging
+from math import log2
 import sys
 import pytest
 import os.path
@@ -24,11 +25,10 @@ import re
 from dataclasses import dataclass
 from lbr_testsuite.executable import executable, remote_executor
 from lbr_trex_client.interactive import trex
-from typing import Tuple
 from pathlib import Path
 from itertools import product
 from param import filter
-from util.config_builder import ConfigBuilder
+from util.config_builder import DEFAULT_SURICATA_CONF, ConfigBuilder
 from util.log_util import get_logger, setup_logging
 
 TIME_STR = time.strftime("-".join(["%Y", "%m", "%d", "%H:%M"]))
@@ -36,7 +36,7 @@ PATH_TO_ARTEFACTS: str = str(Path(__file__).parent / "results" / "artefacts")
 logger = get_logger(__name__)
 
 # Defaults for --trex-stl-burst when it is given without arguments: (PPS, PACKET_COUNT).
-STL_BURST_DEFAULTS: Tuple[float, int] = (200_000, 10_000_000)
+STL_BURST_DEFAULTS: tuple[float, int] = (200_000, 10_000_000)
 
 # alias lbr_trex_client.interactive.trex to trex for importing native TRex profiles
 sys.modules["trex"] = trex
@@ -89,9 +89,39 @@ def _log_level_type(value: str) -> str | int:
     )
 
 
-def _fmt_thousands(value: int) -> str:
+def fmt_thousands(value: int) -> str:
     """Format an integer with space thousands separators (e.g. 200000 -> '200 000')."""
     return f"{value:,}".replace(",", " ")
+
+
+def fmt_bytes(value: int) -> str:
+    """Format an integer as an SI prefixed amount of bytes.
+
+    If the value is an integer multiple of the -ibby (base 2)
+    prefixes, then those are used. For example 6GiB.
+
+    Otherwise normal (base 10) prefixes are used.
+    For example 42.67KB.
+    """
+    if value == 0:
+        return "0B"
+
+    sign = "-" if value < 0 else ""
+    value = abs(value)
+
+    binary_prefixes = ["KiB", "MiB", "GiB", "TiB", "PiB", "EiB"]
+    for i in range(len(binary_prefixes), 0, -1):
+        divisor = 1024**i
+        if value % divisor == 0:
+            return f"{sign}{value // divisor}{binary_prefixes[i - 1]}"
+
+    decimal_prefixes = ["B", "KB", "MB", "GB", "TB", "PB", "EB"]
+    index = min(int(log2(value) // log2(1000)), len(decimal_prefixes) - 1)
+    if index == 0:
+        return f"{sign}{value}B"
+
+    scaled = value / 1000**index
+    return f"{sign}{scaled:.2f}{decimal_prefixes[index]}"
 
 
 def _validate_stl_burst_option(config) -> None:
@@ -292,8 +322,8 @@ def pytest_addoption(parser):
         help=(
             "In STL mode, send a fixed burst of PACKET_COUNT packets at PPS "
             "instead of replaying for the configured duration. With no "
-            f"arguments, defaults to {_fmt_thousands(int(STL_BURST_DEFAULTS[0]))} "
-            f"PPS and {_fmt_thousands(STL_BURST_DEFAULTS[1])} packets. Only "
+            f"arguments, defaults to {fmt_thousands(int(STL_BURST_DEFAULTS[0]))} "
+            f"PPS and {fmt_thousands(STL_BURST_DEFAULTS[1])} packets. Only "
             "applies to STL mode; ignored (with a warning) for other modes."
         ),
     )
@@ -350,7 +380,7 @@ def get_trex_executor(request):
     return remote_executor.RemoteExecutor(host=trex_name, user=user)
 
 
-def get_host_internal(request) -> Tuple[str, str]:
+def get_host_internal(request) -> str:
     return request.config.getoption("--remote-host")
 
 
@@ -490,7 +520,7 @@ def suri_interface_bind(request):
         elif af_packet_match is not None:
             return (request.node.callspec.params["params"][parameter_path], "af-packet")
 
-    assert dpdk_match is not None or af_packet_match is not None
+    raise ValueError("No interfaces to bind")
 
 
 @pytest.fixture(autouse=True)
@@ -527,7 +557,7 @@ def suricata_conf_file(request) -> ConfigBuilder:
             editable_yaml, request.config.getoption("--suricata-cfg")
         )
     else:
-        builder = ConfigBuilder(editable_yaml)
+        builder = ConfigBuilder(editable_yaml, str(DEFAULT_SURICATA_CONF))
 
     return builder
 
@@ -708,6 +738,7 @@ def import_module(param_file):
     spec = importlib.util.spec_from_file_location(
         module_name_of_param_file, module_path
     )
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -834,6 +865,7 @@ def get_capture_modes(param_file):
     module = import_module(param_file)
     if hasattr(module, "capture_modes"):
         return module.capture_modes
+    return []
 
 
 def make_combinations_for_af_packet(queues, rx_descriptors):
@@ -886,17 +918,18 @@ def setup_af_packet(request):
 
 
 def af_packet_get_queues_rx_descriptors(param_file, params):
+    parameters = None
+    key = None
     for parameter_path in params[-1].keys():
         af_packet_match = re.match(r"af-packet\[[0-9]+\].interface", parameter_path)
 
         if af_packet_match is not None:
-            key = af_packet_match.group(0)
             parameters = params[-1]
-        else:
-            return
+            key = af_packet_match.group(0)
+            break
 
-    queues_not_empty = False
-    rx_descriptors_not_empty = False
+    if parameters is None or key is None:
+        return
 
     file_is_accessible(param_file)
     module = import_module(param_file)
@@ -912,9 +945,8 @@ def af_packet_get_queues_rx_descriptors(param_file, params):
             .replace("[", "")
             .replace("]", "")
         )
-        if query_result:  # empty str
-            queues = [int(i) for i in query_result.split(",")]
-            queues_not_empty = True
+        assert query_result, "queues cannot be empty because of settings"
+        queues = [int(i) for i in query_result.split(",")]
 
         query_result = (
             str(
@@ -927,13 +959,8 @@ def af_packet_get_queues_rx_descriptors(param_file, params):
             .replace("[", "")
             .replace("]", "")
         )
-        if query_result:  # empty str
-            rx_descriptors = [int(i) for i in query_result.split(",")]
-            rx_descriptors_not_empty = True
-
-        assert (
-            queues_not_empty and rx_descriptors_not_empty
-        )  # cannot be empty because of settings
+        assert query_result, "rx_descriptors cannot be empty because of settings"
+        rx_descriptors = [int(i) for i in query_result.split(",")]
 
         combinations = make_combinations_for_af_packet(queues, rx_descriptors)
         params.pop()
