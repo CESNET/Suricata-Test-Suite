@@ -9,19 +9,21 @@ SPDX-License-Identifier: BSD-3-Clause
 Suricata testing module.
 """
 
-import pytest
-import signal
 import logging
+import signal
+from pathlib import Path
 
-from typing import List
+import pytest
 from lbr_testsuite import trex
-from util.suricata_manager import Suricata_manager
-from util.suri_util import TestInfo, get_drop_rate
-from util.trex_util import TrexMode, get_trex_mode
+
 from assets.trex.traffic_profiles.ad_hoc_stl_trex_profile import AdHocStlProfile
-from conftest import kill_pytest, get_trex_multi, suri_interface_bind, Suri_conf
+from assets.trex.traffic_profiles.trex_client_manager import Pcap
+from conftest import Suri_conf, get_trex_multi, kill_pytest, suri_interface_bind
 from util.multiplier_iterator import multiplier_iterator_create
+from util.suri_util import TestInfo, get_drop_rate
+from util.suricata_manager import Suricata_manager
 from util.test_runner import TrexTestRun
+from util.trex_util import TrexMode, get_trex_mode
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +80,7 @@ def test_pcap_replay(
     # only STL is supported here; get_trex_mode skips the test if another mode is forced
     trex_mode = get_trex_mode(request, [TrexMode.STL])
     trex_client = AdHocStlProfile(
-        [(get_path_to_pcap, 1)],
+        [Pcap(Path(get_path_to_pcap), 1)],
         trex_manager,
         request,
         get_target_mac,
@@ -87,7 +89,7 @@ def test_pcap_replay(
     )
 
     test_variant_name = f"{suri_conf.test_name}_{rules_config['name']}"
-    trex_multipliers: List[float] = get_trex_multi(
+    trex_multipliers: list[float] = get_trex_multi(
         get_settings_file, suri_conf.server, suri_conf.pcie, test_variant_name
     )
 

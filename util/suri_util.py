@@ -68,6 +68,8 @@ class RunInfo:
     # TRex transmit counters sampled at the start of the measurement window
     trex_tx_packets_at_start: int = 0
     trex_tx_bytes_at_start: int = 0
+    trex_tx_pps_at_start: float = 0.0
+    trex_tx_pps_samples: list[float] = field(default_factory=list)
 
 
 def get_last_stats_line(file: str) -> str:
