@@ -554,7 +554,9 @@ is preferred as it leads to simpler tuning and debugging. For examples see `http
 When defining an **STF profile** you might want to define `get_stf_profile` which should return a path to a
 [traffic profile](https://trex-tgn.cisco.com/trex/doc/trex_manual.html#_traffic_yaml_f_argument_of_stateful).
 You should generate these dynamically, since the profile contains MAC addresses and a mismatch will cause
-your packets to not be delivered.
+your packets to not be delivered. The base implementation generates the profile from the supplied pcaps
+and caches it under `.cache/` under a name derived from its inputs, so it is only regenerated when the
+inputs (pcaps, weights, TRex version) change; delete `.cache/` to force regeneration.
 
 You might also want to change some things in the [platform config](https://trex-tgn.cisco.com/trex/doc/trex_manual.html#_platform_yaml_cfg_argument)
 which can be done by defining an `stf_config_hook`. This function gets a `ConfigBuilder` instance with the config that would be sent to
@@ -572,6 +574,20 @@ duration-based replay. This is enabled with `--trex-stl-burst` (or `-sb` in
 
 You are not limited to one TRex mode per profile. For example you can define a TRex profile that has a native ASTF TRex config, which is used for
 the ASTF mode and `get_stf_profile` uses it to create an STF profile dynamically.
+
+### Local cache (`.cache/`)
+
+Generated transient files (merged and VLAN-tagged PCAPs, TRex/Suricata configs, ...) are cached under
+`.cache/` via `util/cache_util.py`. Cache names embed a short hash of the generating inputs, so identical
+inputs reuse the previously generated file and changed inputs never collide with stale artifacts.
+
+The cache has two scopes:
+
+- `.cache/persistent/` — kept until you delete it manually (default for PCAPs and TRex profiles).
+- `.cache/run/` — wiped once at the start of each pytest session (used for per-run config files).
+
+On a lookup, the run cache is checked before the persistent one. Delete `.cache/` (or use
+`util.cache_util.clear_cache()`) to force regeneration of everything.
 
 ---
 
@@ -697,4 +713,4 @@ Logging behavior is controlled via command-line options:
 | Hugepages not allocated | Check with `cat /proc/meminfo \| grep HugePages` on the Suricata server. |
 | NIC not bound to correct driver | Run `dpdk-devbind -s` on the Suricata server to check driver bindings. |
 | `sudo -E sh -c 'lshw -c network \| grep -c <PCIe> > /tmp/pcie_count'` has failed with code 1. | Check your PCIes for typos |
-| PCAP not updated after modifying source files | Source pcaps are cached on the TRex server. If a pcap was modified in place without being renamed, use `-fpu` / `--force-pcap-upload` to force re-upload. |
+| PCAP not updated after modifying source files | Source pcaps are cached on the TRex server. If a pcap was modified in place without being renamed, use `-fpu` / `--force-pcap-upload` to force re-upload. Locally cached artifacts derived from it (merged/vlan pcaps) also need regeneration — delete `.cache/` or include a `util.cache_util.file_fingerprint()` of the file in the cache key. |

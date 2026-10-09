@@ -28,6 +28,7 @@ from lbr_trex_client.interactive import trex
 from pathlib import Path
 from itertools import product
 from param import filter
+from util.cache_util import cache_path, clear_run_cache
 from util.config_builder import DEFAULT_SURICATA_CONF, ConfigBuilder
 from util.log_util import get_logger, setup_logging
 
@@ -547,19 +548,20 @@ def bind(request):
 
 @pytest.fixture(scope="function")
 def suricata_conf_file(request) -> ConfigBuilder:
-    destination_dir = Path(request.node.path).parent / "tmp"
-    editable_yaml = str(destination_dir / "suricata.yaml")
+    """Return a ConfigBuilder writing into the run-scoped cache.
 
-    os.makedirs(str(destination_dir), exist_ok=True)
+    The output path is derived from the source config, the test and its
+    callspec params, so different parametrizations do not overwrite each
+    other's generated configs.
+    """
+    source_conf = request.config.getoption("--suricata-cfg") or str(
+        DEFAULT_SURICATA_CONF
+    )
 
-    if request.config.getoption("--suricata-cfg"):
-        builder = ConfigBuilder(
-            editable_yaml, request.config.getoption("--suricata-cfg")
-        )
-    else:
-        builder = ConfigBuilder(editable_yaml, str(DEFAULT_SURICATA_CONF))
+    key_parts: list[str] = [source_conf, request.node.name]
+    editable_yaml = str(cache_path("suricata.yaml", *key_parts, persistent=False))
 
-    return builder
+    return ConfigBuilder(editable_yaml, source_conf)
 
 
 @pytest.fixture(scope="function")
@@ -567,6 +569,16 @@ def result_path(request):
     return os.path.join(
         PATH_TO_ARTEFACTS, get_run_dir_name(request.config), request.function.__name__
     )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def run_cache_cleanup() -> None:
+    """Wipe the run-scoped cache (`.cache/run/`) at the start of the session.
+
+    Files that must persist across runs live in `.cache/persistent/` and are
+    left untouched; see `util/cache_util.py`.
+    """
+    clear_run_cache()
 
 
 @pytest.fixture(scope="session", autouse=True)

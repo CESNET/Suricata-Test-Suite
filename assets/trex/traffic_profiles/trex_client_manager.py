@@ -8,7 +8,6 @@ TRex profile template for use in Suricata-Test-Suite
 """
 
 import logging
-import os
 import warnings
 from pathlib import Path
 from time import sleep, time
@@ -36,13 +35,13 @@ from trex_client import CTRexClient
 from pytest import FixtureRequest
 
 from util.add_vlan import edit_vlan
+from util.cache_util import cache_path, try_cache
 from util.config_builder import DEFAULT_TREX_CONF, ConfigBuilder
 from util.suri_util import RunInfo
 from util.trex_util import (
     TrexMode,
+    get_merged_pcap,
     get_trex_mac,
-    merge_pcaps,
-    merged_pcap_name,
     mkdir_remote,
     send_to_remote,
 )
@@ -154,12 +153,7 @@ class BaseTrexClientManager:
                     weights = [float(p.weight) for p in self.pcaps]
                     # Deterministic name so rsync skips upload on reruns;
                     # use --force-pcap-upload to bypass when source pcaps change.
-                    merged_name = merged_pcap_name(local_paths, weights)
-                    merged_path = merge_pcaps(
-                        local_paths,
-                        weights,
-                        self.PCAP_PATH_PREFIX / merged_name,
-                    )
+                    merged_path = get_merged_pcap(local_paths, weights)
                     self.pcaps = [Pcap(merged_path, sum(weights))]
 
                 if target_vlan != 0:
@@ -208,9 +202,8 @@ class BaseTrexClientManager:
                 mkdir_remote(parent_dir_path, trex_hostname)
 
                 logger.info("Uploading pcaps to TRex server. This might take a while.")
-                os.makedirs("tmp", exist_ok=True)
                 config = ConfigBuilder(
-                    "tmp/trex_cfg.yaml",
+                    str(cache_path("trex_cfg.yaml", persistent=False)),
                     str(DEFAULT_TREX_CONF),
                 )
                 config.set_option("[0].interfaces", [trex_pcie, "dummy"])
@@ -304,12 +297,23 @@ class BaseTrexClientManager:
         """
         Returns the *local* path to the stateful profile config.
         The remote path is handled by `get_remote_data_path`.
+
+        The profile is cached under `.cache/persistent/` under a name derived
+        from its inputs (pcap names and weights), so it is only regenerated when
+        the inputs change; delete `.cache/` to force regeneration.
         """
         if self._stf_config_path is not None:
             return self._stf_config_path
 
-        self._stf_config_path = Path("tmp/stf_trex_profile.yaml").absolute()
-        os.makedirs(self._stf_config_path.parent, exist_ok=True)
+        key_parts: list[object] = [str(p.path.name) for p in self.pcaps]
+        key_parts += [str(p.weight) for p in self.pcaps]
+
+        cached_profile_path = try_cache("stf_profile.yaml", key_parts)
+        if cached_profile_path is not None:
+            self._stf_config_path = cached_profile_path
+            return self._stf_config_path
+
+        self._stf_config_path = cache_path("stf_profile.yaml", *key_parts)
         with open(self._stf_config_path, mode="w+") as f:
             f.write("[]\n")
         profile = ConfigBuilder(str(self._stf_config_path), str(self._stf_config_path))
@@ -349,7 +353,6 @@ class BaseTrexClientManager:
                 },
             )
 
-        os.makedirs("tmp", exist_ok=True)
         profile.build()
         return self._stf_config_path
 
