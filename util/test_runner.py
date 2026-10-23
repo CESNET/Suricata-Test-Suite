@@ -35,7 +35,7 @@ class TestRun:
         self.request = request
 
     def _before_traffic(self, multiplier: float, duration: int):
-        """Prepare TRex before suricata starts (e.g. reset, set_props)."""
+        """Prepare TRex before suricata starts (e.g. reset)."""
 
     def _run_traffic(self, multiplier: float, duration: int, run_info: RunInfo):
         """Generate traffic. Suricata is already running."""
@@ -92,7 +92,8 @@ class TrexTestRun(TestRun):
         self.trex_client = trex_client
 
     def _before_traffic(self, multiplier: float, duration: int):
-        self.trex_client.set_props(multiplier, duration)
+        self.trex_client.multiplier = multiplier
+        self.trex_client.duration = duration
         self.trex_client.prepare()
 
     def _run_traffic(self, multiplier: float, duration: int, run_info: RunInfo):

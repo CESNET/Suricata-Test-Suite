@@ -561,7 +561,7 @@ inputs (pcaps, weights, TRex version) change; delete `.cache/` to force regenera
 You might also want to change some things in the [platform config](https://trex-tgn.cisco.com/trex/doc/trex_manual.html#_platform_yaml_cfg_argument)
 which can be done by defining an `stf_config_hook`. This function gets a `ConfigBuilder` instance with the config that would be sent to
 trex and you can either modify this or create a completely new `ConfigBuilder` instance.
-For examples see `realistic_traffic_trex_profile.py`
+For examples see `performance_tests/web_50_sites_trex_profile.py`
 
 **STL profiles** are defined only with a list of PCAPs and should really only be used as a simple fallback, but STF is preferred
 and can be used in the same situations as STL. When multiple PCAPs are supplied, the base class merges them into a single
