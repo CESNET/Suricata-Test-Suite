@@ -16,9 +16,9 @@ from .native import Prof1
 class HttpProfile(BaseTrexClientManager, pcaps=Prof1.pcaps):
     def get_astf_profile(self, multiplier: float) -> astf_profile.ASTFProfile:
         profile = Prof1()
-        for i, pcap in enumerate(self.profile_pcaps):
-            pcap_path = str(Path(__file__).parents[2] / "pcaps" / pcap[0])
-            cps = pcap[1] * multiplier
-            profile.pcaps[i] = (pcap_path, cps)
+        profile.pcaps = [
+            (str(Path(__file__).parents[2] / "pcaps" / pcap[0]), pcap[1] * multiplier)
+            for pcap in self.profile_pcaps
+        ]
 
         return profile.get_profile({})
