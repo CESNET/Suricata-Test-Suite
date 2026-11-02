@@ -57,6 +57,9 @@ Traffic:
 
 Suricata:
   -sh   --suricata-hugepages [SIZE]    How much RAM to allocate in hugepages (default: 6G)
+  -ss   --suricata-set [KEY=VALUE ...] Override suricata.yaml keys (applied like
+                                        Suricata's --set). Takes priority over
+                                        suricata_settings in test_settings.json
 
 Results and logging:
   -sl   --suite-log-level [LEVEL]      Logging level for the suite: a name (DEBUG,
@@ -71,8 +74,10 @@ Results and logging:
                                         even if identical files already exist
 
 Advanced:
-  -bs   --binary-search <mm> <xm> <dr> <pr>
-                                        Enable automatic throughput search
+  -bs   --binary-search [<mm> <xm> <dr> <pr>]
+                                        Enable automatic throughput search. With no
+                                        arguments, parameters are taken from the
+                                        binary_search settings in test_settings.json
   -bsh  --binary-search-help           Show help for binary search mode
 
 Defaults for all options can also be set in a .env file in the repository
@@ -90,16 +95,20 @@ binary_search_usage(){
 Bash script to start pytest - binary search mode
 
 Usage:
-  -bs | --binary-search <mm> <xm> <dr> <pr>
+  -bs | --binary-search [<mm> <xm> <dr> <pr>]
 
-Positional arguments:
-  mm  | min-multiplier  [FLOAT]  Lowest bound of the search range. (required)
-  xm  | max-multiplier  [FLOAT]  Highest bound of the search range. (required)
-  dr  | drop-rate       [FLOAT]  Max allowed drop rate in % <0,100>. (required)
-  pr  | precision       [FLOAT]  Exit when (xm - mm) < precision. (required)
+With no arguments, binary search parameters are taken from the binary_search
+settings in test_settings.json (per-level: pci > server > test > global).
+
+Positional arguments (all four required when given):
+  mm  | min-multiplier  [FLOAT]  Lowest bound of the search range.
+  xm  | max-multiplier  [FLOAT]  Highest bound of the search range.
+  dr  | drop-rate       [FLOAT]  Max allowed drop rate in % <0,100>.
+  pr  | precision       [FLOAT]  Exit when (xm - mm) < precision.
 
 Examples:
-  -bs 0.0 10.0 1.0 0.05
+  -bs                          # use binary_search from test_settings.json
+  -bs 0.0 10.0 1.0 0.05        # explicit parameters, override test_settings.json
 EOF
   exit 0
 }
@@ -148,18 +157,31 @@ while [ "$#" -gt 0 ]; do
         shift
         ;;
     -sh | --suricata-hugepages) hugepages="$2"; shift 2 ;;
+    -ss | --suricata-set)
+        extra_args+=(--suricata-set)
+        shift
+        while [ "$#" -gt 0 ] && [[ "$1" == *=* ]]; do
+            extra_args+=("$1")
+            shift
+        done
+        ;;
     -h | --help) usage ;;
     -bsh | --binary-search-help) binary_search_usage ;;
     -bs | --binary-search)
         binary_search_enabled=true
         shift
-        if [ "$#" -lt 4 ] || [[ "$1" =~ ^- ]] || [[ "$2" =~ ^- ]] || [[ "$3" =~ ^- ]] || [[ "$4" =~ ^- ]]; then
-            echo "Error: --binary-search (-bs) requires exactly 4 arguments: <min> <max> <drop_rate> <precision>"
-            binary_search_usage
-            exit 1
+        if [ "$#" -eq 0 ] || [[ "$1" =~ ^- ]]; then
+            # no arguments: use binary_search from test_settings.json
+            binary_search_args=()
+        else
+            if [ "$#" -lt 4 ] || [[ "$2" =~ ^- ]] || [[ "$3" =~ ^- ]] || [[ "$4" =~ ^- ]]; then
+                echo "Error: --binary-search (-bs) requires 0 or 4 arguments: <min> <max> <drop_rate> <precision>"
+                binary_search_usage
+                exit 1
+            fi
+            binary_search_args=("$1" "$2" "$3" "$4")
+            shift 4
         fi
-        binary_search_args=("$1" "$2" "$3" "$4")
-        shift 4
         ;;
     --) shift; read -a extra_args <<< "$@"; break ;;
     *) >&2 echo "unsupported option: $1"
