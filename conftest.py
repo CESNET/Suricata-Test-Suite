@@ -342,6 +342,19 @@ def pytest_addoption(parser):
             "Example: --binary-search 0.0 10.0 1.0 0.05"
         ),
     )
+    parser.addoption(
+        "--suricata-set",
+        nargs="*",
+        type=str,
+        default=None,
+        metavar="KEY=VALUE",
+        action="store",
+        help=(
+            "Override suricata.yaml keys (applied like Suricata's --set). "
+            "Takes priority over suricata_settings in test_settings.json. "
+            "Example: --suricata-set stream.reassembly.depth=1mb"
+        ),
+    )
 
 
 def pytest_configure(config):
@@ -477,25 +490,46 @@ def get_target_vlan(request):
     return request.config.getoption("--target-vlan")
 
 
+def get_test_variant_name(request) -> str:
+    """Test name including the rules_config suffix, as used in test_settings.json."""
+    base = request.node.name.split("[")[0]
+    rules = request.node.callspec.params.get("rules_config", {})
+    suffix = rules.get("name", "")
+    return f"{base}_{suffix}" if suffix else base
+
+
 @pytest.fixture()
-def b_search(request):
+def b_search(request, suri_conf, get_settings_file):
     """Returns None if binary search is disabled, or a dict of params if enabled.
 
+    Priority: CLI --binary-search > test_settings.json levels > None.
     Dict keys: min, max, drop_rate, precision
     """
     val = request.config.getoption("--binary-search")
-    if val is None:
+    if val is not None:
+        if len(val) != 4:
+            pytest.fail(
+                "--binary-search requires exactly 4 arguments: "
+                f"<min_multiplier> <max_multiplier> <drop_rate%> <precision>, got {len(val)}: {val}"
+            )
+        return {
+            "min": val[0],
+            "max": val[1],
+            "drop_rate": val[2],
+            "precision": val[3],
+        }
+
+    test_variant = get_test_variant_name(request)
+    cfg = get_binary_search(
+        get_settings_file, suri_conf.server, suri_conf.pcie, test_variant
+    )
+    if cfg is None:
         return None
-    if len(val) != 4:
-        pytest.fail(
-            "--binary-search requires exactly 4 arguments: "
-            f"<min_multiplier> <max_multiplier> <drop_rate%> <precision>, got {len(val)}: {val}"
-        )
     return {
-        "min": val[0],
-        "max": val[1],
-        "drop_rate": val[2],
-        "precision": val[3],
+        "min": float(cfg["min"]),
+        "max": float(cfg["max"]),
+        "drop_rate": float(cfg["drop_rate"]),
+        "precision": float(cfg["precision"]),
     }
 
 
@@ -522,6 +556,16 @@ def suri_interface_bind(request):
             return (request.node.callspec.params["params"][parameter_path], "af-packet")
 
     raise ValueError("No interfaces to bind")
+
+
+def get_suricata_settings(test_settings_file, server, pci, test_name):
+    levels = resolve_level_settings(test_settings_file, server, pci, test_name)
+    merged: dict = {}
+    for level_name, level in reversed(levels):
+        if "suricata_settings" in level:
+            logger.debug("suricata_settings merged from %s level", level_name)
+            merged.update(level["suricata_settings"])
+    return merged
 
 
 @pytest.fixture(autouse=True)
@@ -561,7 +605,26 @@ def suricata_conf_file(request) -> ConfigBuilder:
     key_parts: list[str] = [source_conf, request.node.name]
     editable_yaml = str(cache_path("suricata.yaml", *key_parts, persistent=False))
 
-    return ConfigBuilder(editable_yaml, source_conf)
+    builder = ConfigBuilder(editable_yaml, source_conf)
+
+    settings_file = str(request.node.path.parent / "test_settings.json")
+    suri_settings = get_suricata_settings(
+        settings_file,
+        get_host_internal(request),
+        suri_interface_bind(request)[0],
+        get_test_variant_name(request),
+    )
+    # CLI --suricata-set KEY=VALUE overrides settings file per key
+    for kv in request.config.getoption("--suricata-set") or []:
+        key, sep, value = kv.partition("=")
+        if not sep:
+            pytest.fail(f"--suricata-set expects KEY=VALUE, got {kv!r}")
+        suri_settings[key] = value
+
+    for k, v in suri_settings.items():
+        builder.set_option(k, v)
+
+    return builder
 
 
 @pytest.fixture(scope="function")
@@ -768,52 +831,73 @@ def parametrize_args(param_file):
     return
 
 
-def get_trex_multi(test_settings_file, server, pci, test_name):
-    logger.debug(
-        "Loading TRex multipliers: test=%s server=%s pci=%s", test_name, server, pci
-    )
+def resolve_level_settings(test_settings_file, server, pci, test_name):
+    """Return (merged_dict, levels) where merged_dict holds per-key winner.
+
+    Levels checked most-specific first: pci > server > test > global.
+    Each key is taken from the first level that defines it.
+    """
     file_is_accessible(test_settings_file)
     with open(test_settings_file) as f:
         data = json.load(f)
-    pcies = (
-        jq.compile(
-            f'.configuration.tests[] | select(.test_name == "{test_name}") | .servers[] | select(.server_name == "{server}") | .pci[] | .pcie_addr'
-        )
-        .input_value(data)
-        .all()
-    )
+
+    cfg = data["configuration"]
+    test = next((t for t in cfg["tests"] if t["test_name"] == test_name), None)
+    if test is None:
+        raise ValueError(f"No test {test_name} in {test_settings_file}")
+    srv = next((s for s in test["servers"] if s["server_name"] == server), None)
+    if srv is None:
+        raise ValueError(f"No server {server} in {test_settings_file}:{test_name}")
 
     group = None
-    for pattern in pcies:
+    for entry in srv["pci"]:
+        pattern = entry["pcie_addr"]
         try:
             if re.compile(pattern, re.IGNORECASE).fullmatch(pci) is not None:
-                group = pattern
-                logger.debug("PCI %s matched regex pattern %s", pci, pattern)
+                group = entry
                 break
         except re.error:
             if pci == pattern:
-                group = pattern
-                logger.debug(
-                    "PCI %s matched literal pattern %s (invalid regex)", pci, pattern
-                )
+                group = entry
                 break
-
     if group is None:
         raise ValueError(
             f"No match found for {server} and {pci} in {test_settings_file}:{test_name}"
         )
 
-    # re-escape backslashes
-    group = group.replace("\\", "\\\\")
+    levels = [
+        (
+            "pci",
+            {
+                **group.get("settings", {}),
+                **{k: v for k, v in group.items() if k == "trex_multipliers"},
+            },
+        ),
+        ("server", srv.get("settings", {})),
+        ("test", test.get("settings", {})),
+        ("global", cfg.get("settings", {})),
+    ]
+    return levels
 
-    multipliers = (
-        jq.compile(
-            f'.configuration.tests[] | select(.test_name == "{test_name}") | .servers[] | select(.server_name == "{server}") | .pci[] | select(.pcie_addr == "{group}") | .trex_multipliers'
-        )
-        .input_value(data)
-        .first()
-    )
-    logger.debug("Loaded multipliers for %s: %s", pci, multipliers)
+
+def get_setting(levels, key, required=False):
+    for level_name, level in levels:
+        if key in level:
+            logger.debug("Setting %s taken from %s level", key, level_name)
+            return level[key]
+    if required:
+        raise ValueError(f"No {key} defined at any level")
+    return None
+
+
+def get_binary_search(test_settings_file, server, pci, test_name):
+    levels = resolve_level_settings(test_settings_file, server, pci, test_name)
+    return get_setting(levels, "binary_search")
+
+
+def get_trex_multi(test_settings_file, server, pci, test_name):
+    levels = resolve_level_settings(test_settings_file, server, pci, test_name)
+    multipliers = get_setting(levels, "trex_multipliers", required=True)
     return [float(x) for x in multipliers]
 
 
