@@ -62,7 +62,15 @@
                                     1.0
                                 ]
                             }
-                        ]
+                        ],
+                        "settings": {
+                            "binary_search": {
+                                "min": 0.09,
+                                "max": 0.1,
+                                "drop_rate": 1,
+                                "precision": 0.01
+                            }
+                        }
                     },
                     {
                         "server_name": "dpdk-test2",
@@ -75,7 +83,15 @@
                                     1.0
                                 ]
                             }
-                        ]
+                        ],
+                        "settings": {
+                            "binary_search": {
+                                "min": 0.09,
+                                "max": 0.1,
+                                "drop_rate": 1,
+                                "precision": 0.01
+                            }
+                        }
                     }
                 ]
             }
