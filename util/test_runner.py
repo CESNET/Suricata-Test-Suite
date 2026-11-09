@@ -21,6 +21,22 @@ from util.suri_util import RunInfo, save_stats, TestInfo
 logger = logging.getLogger(__name__)
 
 
+def _apply_cli_overrides(params: dict, request: pytest.FixtureRequest) -> dict:
+    """Return params merged with --suricata-set KEY=VALUE CLI overrides.
+
+    Overrides win over parametrized values so that result metadata reflects
+    the configuration Suricata actually ran with.
+    """
+    overrides: dict[str, str] = {}
+    for kv in request.config.getoption("--suricata-set") or []:
+        key, sep, value = kv.partition("=")
+        if sep:
+            overrides[key] = value
+    if not overrides:
+        return params
+    return {**params, **overrides}
+
+
 class TestRun:
     def __init__(
         self,
@@ -31,7 +47,7 @@ class TestRun:
     ):
         self.suri_daemon = suri_daemon
         self.test_info = test_info
-        self.params = params
+        self.params = _apply_cli_overrides(params, request)
         self.request = request
 
     def _before_traffic(self, multiplier: float, duration: int):

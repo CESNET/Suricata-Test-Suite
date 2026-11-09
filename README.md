@@ -310,11 +310,14 @@ This is a mode where we are testing maximum Suricata throughput and trying to co
 packet drop rate. The search returns the highest found multiplier that is under or equal the specified
 allowed drop rate. If none is found, the run fails (raises `MultiplierNotFoundError`).
 
-Binary search is enabled by passing positional arguments to `--binary-search`. All four
-arguments are **required** — passing `-bs` with no arguments will result in an error.
+Binary search is enabled by passing positional arguments to `--binary-search`. Either
+pass **all four** arguments or **none** — with no arguments the parameters are taken
+from the `binary_search` settings in `test_settings.json` (see
+[Per-level settings](#6-test-settings-test_settingsjson)). CLI arguments always take
+priority over the settings file.
 
 ```bash
---binary-search <mm> <xm> <dr> <pr>
+--binary-search [<mm> <xm> <dr> <pr>]
 ```
 
 | Position | Name | Type | Description |
@@ -326,11 +329,14 @@ arguments are **required** — passing `-bs` with no arguments will result in an
 
 Examples:
 ```bash
-# All 4 required values:
+# All 4 explicit values (override test_settings.json):
 pytest ... --binary-search 0.0 10.0 1.0 0.05
 
 # Via pytest_start.sh:
 ./pytest_start.sh ... -bs 0.0 10.0 1.0 0.05
+
+# No arguments: use binary_search from test_settings.json:
+./pytest_start.sh ... -bs
 ```
 
 ---
@@ -449,6 +455,74 @@ To test on a new server/PCIe, add an entry to the `servers` array for **each tes
         }
     ]
 }
+```
+
+### Per-level settings
+
+Besides `trex_multipliers`, a `settings` object can be defined at any level —
+`configuration` (global), test, server, or PCI entry. More specific levels
+override less specific ones: **pci > server > test > global**.
+
+Two keys are supported inside `settings`:
+
+| Key | Type | Description |
+|---|---|---|
+| `binary_search` | object | Default binary search parameters (`min`, `max`, `drop_rate`, `precision`). Used when `--binary-search` is not passed on the CLI. CLI always wins. |
+| `suricata_settings` | object | Key-value pairs applied to `suricata.yaml` via `ConfigBuilder.set_option` (equivalent of Suricata's `--set`). Merged per key across levels — a deeper level overrides only the keys it defines. |
+
+Example — global defaults, per-server binary search, per-test Suricata tuning:
+
+```json
+{
+    "configuration": {
+        "settings": {
+            "suricata_settings": {
+                "stream.reassembly.depth": "1mb"
+            }
+        },
+        "tests": [
+            {
+                "test_name": "test_http_norules",
+                "settings": {
+                    "suricata_settings": {
+                        "detect.profile": "high"
+                    }
+                },
+                "servers": [
+                    {
+                        "server_name": "claret",
+                        "settings": {
+                            "binary_search": {
+                                "min": 0.09,
+                                "max": 0.1,
+                                "drop_rate": 1,
+                                "precision": 0.01
+                            }
+                        },
+                        "pci": [
+                            {
+                                "pcie_addr": "0000:3b:00.0",
+                                "trex_multipliers": [0.1, 0.2, 0.3]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}
+```
+
+In this example the `claret` server runs binary search with `min=0.09, max=0.1`,
+and the generated `suricata.yaml` gets both `stream.reassembly.depth: "1mb"`
+(global) and `detect.profile: "high"` (test level).
+
+Individual Suricata keys can also be overridden from the CLI, which takes
+priority over both `test_settings.json` and `param.py` parametrized values.
+The overridden values are also recorded in `aggregated.json` result metadata:
+
+```bash
+pytest ... --suricata-set detect.profile=low stream.reassembly.depth=2mb
 ```
 
 ---
