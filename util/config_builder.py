@@ -54,6 +54,7 @@ class ConfigBuilder:
 
     def __init__(self, output: str, input_path: str) -> None:
         self.output = output
+        self.__cli_overrides: dict[str, Any] = {}
         logger.debug(
             "Loading configuration builder: output=%s input=%s", output, input_path
         )
@@ -140,11 +141,18 @@ class ConfigBuilder:
 
         return self
 
+    def set_cli_overrides(self, overrides: dict[str, Any]) -> Self:
+        self.__cli_overrides = dict(overrides)
+        return self
+
     def with_params(self, params: dict[str, Any]) -> Self:
         for k, v in params.items():
             if k == "queues" or k == "rx_descriptors":
                 continue
             self.__proc.set_value(k, v, mustexist=True)
+
+        for k, v in self.__cli_overrides.items():
+            self.set_option(k, v)
 
         return self
 
