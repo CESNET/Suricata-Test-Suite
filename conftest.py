@@ -603,9 +603,13 @@ def suricata_conf_file(request) -> ConfigBuilder:
     callspec params, so different parametrizations do not overwrite each
     other's generated configs.
     """
-    source_conf = request.config.getoption("--suricata-cfg") or str(
-        DEFAULT_SURICATA_CONF
-    )
+    source_conf = request.config.getoption("--suricata-cfg") or None
+    test_local_cfg = Path(request.node.path).parent / "suricata.yaml"
+    if source_conf is None and test_local_cfg.is_file():
+        source_conf = str(test_local_cfg)
+        logger.debug("Using test-local Suricata config: %s", test_local_cfg)
+    if source_conf is None:
+        source_conf = str(DEFAULT_SURICATA_CONF)
 
     key_parts: list[str] = [source_conf, request.node.name]
     editable_yaml = str(cache_path("suricata.yaml", *key_parts, persistent=False))

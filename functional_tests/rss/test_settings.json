@@ -1,0 +1,48 @@
+{
+    "configuration": {
+        "settings": {
+            "suricata_settings": {
+                "dpdk.interfaces[0].threads": 4,
+                "dpdk.interfaces[0].interrupt-mode": false,
+                "dpdk.interfaces[0].rss-hash-functions": "0x3ffc",
+                "dpdk.interfaces[0].copy-mode": "none",
+                "dpdk.interfaces[0].copy-iface": "none"
+            }
+        },
+        "tests": [
+            {
+                "test_name": "test_rss",
+                "servers": [
+                    {
+                        "server_name": "claret",
+                        "pci": [
+                            {
+                                "pcie_addr": "0000:(3b|af|19):00\\.\\d",
+                                "trex_multipliers": [
+                                    1.0
+                                ]
+                            },
+                            {
+                                "pcie_addr": "ens1f0",
+                                "trex_multipliers": [
+                                    1.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "server_name": "dpdk-test2",
+                        "pci": [
+                            {
+                                "pcie_addr": "0000:05:00\\.\\d",
+                                "trex_multipliers": [
+                                    1.0
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}

@@ -50,21 +50,39 @@ class TestRun:
         self.params = _apply_cli_overrides(params, request)
         self.request = request
 
-    def _before_traffic(self, multiplier: float, duration: int):
-        """Prepare TRex before suricata starts (e.g. reset)."""
+    def _before_traffic(
+        self, multiplier: float, duration: int | None, pcap: str | None = None
+    ):
+        """Prepare TRex before Suricata starts (select pcap, reset)."""
 
-    def _run_traffic(self, multiplier: float, duration: int, run_info: RunInfo):
+    def _run_traffic(self, multiplier: float, duration: int | None, run_info: RunInfo):
         """Generate traffic. Suricata is already running."""
         raise NotImplementedError("subclass must implement _run_traffic")
 
     def _collect_stats(self, run_info: RunInfo):
         """Attach TRex stats to *run_info* after traffic completes."""
 
-    def execute(self, multiplier: float, duration: int | None = None):
-        if duration is None:
+    def execute(
+        self,
+        multiplier: float = 1.0,
+        duration: int | None = None,
+        pcap: str | None = None,
+        single_pass: bool = False,
+    ):
+        """Run one traffic and statistics collection cycle.
+
+        With ``single_pass=True``, STL replays the selected pcap exactly once
+        instead of falling back to the configured traffic duration.
+        """
+        if single_pass and self.trex_client.trex_request_burst is not None:
+            raise ValueError(
+                "Single-pass replay cannot be combined with --trex-stl-burst."
+            )
+        
+        if duration is None and not single_pass:
             duration = self.test_info.traffic_duration
 
-        self._before_traffic(multiplier, duration)
+        self._before_traffic(multiplier, duration, pcap)
 
         try:
             self.suri_daemon.start()
@@ -107,12 +125,16 @@ class TrexTestRun(TestRun):
         super().__init__(suri_daemon, test_info, params, request)
         self.trex_client = trex_client
 
-    def _before_traffic(self, multiplier: float, duration: int):
+    def _before_traffic(
+        self, multiplier: float, duration: int | None, pcap: str | None = None
+    ):
+        if pcap is not None:
+            self.trex_client.set_pcap(pcap)
         self.trex_client.multiplier = multiplier
         self.trex_client.duration = duration
         self.trex_client.prepare()
 
-    def _run_traffic(self, multiplier: float, duration: int, run_info: RunInfo):
+    def _run_traffic(self, multiplier: float, duration: int | None, run_info: RunInfo):
         # sample TRex's own counters at the measurement-window start
         def on_measurement_start():
             run_info.trex_tx_packets_at_start = self.trex_client.get_tx_packets()

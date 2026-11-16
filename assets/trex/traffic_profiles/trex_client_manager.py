@@ -154,10 +154,12 @@ class BaseTrexClientManager:
     pcaps: list[Pcap]
     profile_pcaps: ClassVar[list[Pcap]] = []
     multiplier: float = 1.0
-    duration: int
+    duration: int | None
     # set by the `_init_*` dispatch at the end of `__init__`
     trex_version: str  # pyright: ignore[reportUninitializedInstanceVariable]
     _state: StlState | AstfState | StfState
+    _selected_pcap: str | None = None
+    _selectable_pcaps: list[Pcap] | None = None
 
     BASE_IPG_USEC = 12.0  # ~1 Gbps at 1500 bytes per packet
     PCAP_PATH_PREFIX = Path(__file__).parent / "pcaps"
@@ -257,6 +259,9 @@ class BaseTrexClientManager:
         parent_dir_path = self.get_remote_data_path(Path(""))
         mkdir_remote(parent_dir_path, self.trex_request.hostname)
 
+        # Keep individual pcaps selectable after the normal STL merge.
+        self._selectable_pcaps = list(self.pcaps)
+
         # Merge first, then apply the VLAN edit to the single final pcap.
         if len(self.pcaps) > 1:
             local_paths = [p.path for p in self.pcaps]
@@ -309,6 +314,7 @@ class BaseTrexClientManager:
             client.set_vlan(target_vlan)
             server.set_vlan(target_vlan)
 
+        self._selectable_pcaps = list(self.pcaps)
         return AstfState(client=client, server=server)
 
     def _init_stf(
@@ -348,6 +354,7 @@ class BaseTrexClientManager:
                 force=self.trex_request.force_pcap_upload,
             )
         self.pcaps = vlanned_pcaps
+        self._selectable_pcaps = list(self.pcaps)
 
         profile_remote_path = self._refresh_stf_profile()
 
@@ -556,6 +563,53 @@ class BaseTrexClientManager:
 
         return profile_remote_path
 
+    @staticmethod
+    def _pcap_matches(pcap_entry: str | Path, requested: str | Path) -> bool:
+        """Match original and VLAN-tagged names of the same pcap."""
+        entry = Path(pcap_entry)
+        req = Path(requested)
+        if entry.name == req.name:
+            return True
+        return entry.stem.startswith(f"{req.stem}.vlan") or req.stem.startswith(
+            f"{entry.stem}.vlan"
+        )
+
+    def set_pcap(self, pcap: str | Path) -> None:
+        """Restrict traffic to one pcap from the profile's original pcap list.
+
+        STL normally merges all pcaps during initialization, so a selected pcap
+        is uploaded separately here. STF rebuilds and uploads its profile.
+        """
+        if self._selected_pcap is not None and self._pcap_matches(
+            self._selected_pcap, pcap
+        ):
+            return
+
+        selectable = (
+            self._selectable_pcaps if self._selectable_pcaps is not None else self.pcaps
+        )
+        selected = [p for p in selectable if self._pcap_matches(p.path, pcap)]
+        if not selected:
+            raise ValueError(
+                f"'{pcap}' is not one of this profile's pcaps: "
+                f"{[p.path.name for p in selectable]}"
+            )
+
+        self._selected_pcap = str(pcap)
+        self.pcaps = selected
+        logger.debug("TRex traffic restricted to pcap: %s", selected[0].path.name)
+
+        if self.trex_request.mode == TrexMode.STL:
+            pcap_path = selected[0].path
+            send_to_remote(
+                pcap_path,
+                self.trex_request.hostname,
+                self.get_remote_data_path(pcap_path),
+                force=self.trex_request.force_pcap_upload,
+            )
+        elif self.trex_request.mode == TrexMode.STF:
+            self._refresh_stf_profile()
+
     # --- traffic lifecycle: props, prepare, run, wait, stop ---------------
 
     def prepare(self) -> None:
@@ -759,27 +813,34 @@ class BaseTrexClientManager:
         heatup: int,
         on_measurement_start: Callable[[], None] | None,
     ) -> None:
-        """Replay the pcap in a loop for `self.duration` seconds."""
+        """Replay for a duration, or exactly once when duration is None."""
         pcap = self.pcaps[0]
         start = time()
         elapsed = 0
-        while elapsed < self.duration:
+        while self.duration is None or elapsed < self.duration:
+            push_args: dict[str, Any] = {
+                "pcap_filename": str(self.get_remote_data_path(pcap.path)),
+                "ports": [0],
+                "ipg_usec": self.BASE_IPG_USEC / pcap.weight,
+                "speedup": self.multiplier,
+                "count": 1,
+            }
+            if self.duration is not None:
+                push_args["duration"] = int(self.duration - elapsed)
             try:
-                client.push_remote(
-                    pcap_filename=str(self.get_remote_data_path(pcap.path)),
-                    ports=[0],
-                    ipg_usec=self.BASE_IPG_USEC / pcap.weight,
-                    speedup=self.multiplier,
-                    count=1,
-                    duration=int(self.duration - elapsed),
-                )
+                client.push_remote(**push_args)
             except TRexError:
+                if self.duration is None:
+                    # single-pass replay needs a successful push
+                    raise
                 # wait if port was not cleared yet
                 sleep(0.05)
             elapsed = time() - start
             if elapsed >= heatup and on_measurement_start is not None:
                 on_measurement_start()
                 on_measurement_start = None
+            if self.duration is None:
+                break
 
     def _astf_run(
         self,
@@ -789,6 +850,8 @@ class BaseTrexClientManager:
         on_measurement_start: Callable[[], None] | None,
         run_info: RunInfo | None,
     ) -> float | None:
+        if self.duration is None:
+            raise ValueError("ASTF mode requires a duration")
         self._astf.server.start()
         self._astf.client.start(duration=self.duration)
         self._mark_measurement_start(blocking, heatup, on_measurement_start)
@@ -802,6 +865,8 @@ class BaseTrexClientManager:
         on_measurement_start: Callable[[], None] | None,
         run_info: RunInfo | None,
     ) -> float | None:
+        if self.duration is None:
+            raise ValueError("STF mode requires a duration")
         if self.duration < 30:
             warnings.warn(
                 UserWarning(
