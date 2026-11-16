@@ -133,32 +133,42 @@ If you want to pass a flag to pytest directly, you can do so by adding it after 
 
 ### Environment variables
 
-Optionally you can create a `.env` file with default variables, so that you don't have to fill out the flags on every run of pytests.
-The file will look like this:
+Optionally you can create a `.env` file with default values, so that you don't have to fill out the flags on every run of pytest.
+Use [`.env.example`](.env.example) as a template - it lists all supported variables together with the corresponding `pytest_start.sh` flags:
 
 ```bash
-# Variables marked with "# -" don't have any default value, otherwise
-# default values are shown
+cp .env.example .env
+```
 
+The full list of variables (each maps to a script flag shown in parentheses):
+
+```bash
 # Mandatory flags
 # if these aren't set, you have to manually specify them every time
-DEFAULT_SURICATA_SERVER="claret"  # -
-DEFAULT_TREX_SERVER="trex2"       # -
-DEFAULT_TREX_PORT1="0000:b3:00.0" # -
-DEFAULT_TREX_PORT2="0000:b3:00.1" # -
-DEFAULT_PCIES="0000:3b:00.0"      # -
+DEFAULT_SURICATA_SERVER="claret"        # -  (-s)
+DEFAULT_TREX_SERVER="trex2"             # -  (-tg)
+DEFAULT_TREX_PORT1="0000:b3:00.0"       # -  (-p1)
+DEFAULT_TREX_PORT2="0000:b3:00.1"       # -  (-p2)
+DEFAULT_PCIES="0000:3b:00.0"            # -  (-p, space-separated for multiple)
 
 # Mandatory for single port tests
-DEFAULT_TARGET_MAC="08:C0:EB:88:C5:38" # -
+DEFAULT_TARGET_MAC="08:C0:EB:88:C5:38"  # -  (-tm)
 
-# Optional flags
-DEFAULT_TARGET_VLAN=15                     # -
-DEFAULT_TESTS="http_simple nfs_smb_simple" # all tests by default
-DEFAULT_TIME=300
-DEFAULT_HEATUP=0
-DEFAULT_HUGEPAGES="6G"
-LOGLEVEL="INFO"
+# Optional flags (if unset, the built-in defaults shown apply)
+DEFAULT_TARGET_VLAN=0                        # -  (-tv; untagged by default)
+DEFAULT_TESTS="http_simple nfs_smb_simple"   #    (-d; http_simple by default)
+DEFAULT_TIME=300                             #    (-t)
+DEFAULT_HEATUP=0                             #    (-ht)
+DEFAULT_HUGEPAGES="6G"                       #    (-sh)
+LOGLEVEL="INFO"                              #    (-sl)
+DEFAULT_SUITE_LOG_FILE=false                 #    (-sf; set to true to enable)
 ```
+
+**Note on hugepages:** `DEFAULT_HUGEPAGES` (or `--suricata-hugepages`/`-sh` in `pytest_start.sh`,
+or `--suricata-hugepages` when running pytest directly) is the amount of RAM requested for
+hugepages on the Suricata server. If the machine already has less hugepage memory mounted than
+requested, it is re-allocated up to the requested amount. Note that this only ever increases the
+allocation — it never shrinks it back down.
 
 Note that an empty string ("") in `-d` (or `DEFAULT_TESTS`) is a valid value for running all tests
 and that setting `DEFAULT_TESTS` will prevent you from doing so.
@@ -334,11 +344,14 @@ This is a mode where we are testing maximum Suricata throughput and trying to co
 packet drop rate. The search returns the highest found multiplier that is under or equal the specified
 allowed drop rate. If none is found, the run fails (raises `MultiplierNotFoundError`).
 
-Binary search is enabled by passing positional arguments to `--binary-search`. All four
-arguments are **required** — passing `-bs` with no arguments will result in an error.
+Binary search is enabled by passing positional arguments to `--binary-search`. Either
+pass **all four** arguments or **none** — with no arguments the parameters are taken
+from the `binary_search` settings in `test_settings.json` (see
+[Per-level settings](#6-test-settings-test_settingsjson)). CLI arguments always take
+priority over the settings file.
 
 ```bash
---binary-search <mm> <xm> <dr> <pr>
+--binary-search [<mm> <xm> <dr> <pr>]
 ```
 
 | Position | Name | Type | Description |
@@ -350,11 +363,14 @@ arguments are **required** — passing `-bs` with no arguments will result in an
 
 Examples:
 ```bash
-# All 4 required values:
+# All 4 explicit values (override test_settings.json):
 pytest ... --binary-search 0.0 10.0 1.0 0.05
 
 # Via pytest_start.sh:
 ./pytest_start.sh ... -bs 0.0 10.0 1.0 0.05
+
+# No arguments: use binary_search from test_settings.json:
+./pytest_start.sh ... -bs
 ```
 
 ---
@@ -384,7 +400,7 @@ suri_cmd_params = {"capture-mode": ["dpdk"]}
 
 filter = {
     "dpdk": [lambda x: x["dpdk.interfaces[0].mtu"] <= 3000],
-    "af-packet": [lambda x: True]
+    "af-packet": [lambda x: True],
 }
 ```
 
@@ -420,7 +436,7 @@ filter = {
         lambda x: x["dpdk.interfaces[0].mtu"] <= 3000,
         lambda x: x["dpdk.interfaces[0].rx-descriptors"] >= 4096,
     ],
-    "af-packet": [lambda x: True]
+    "af-packet": [lambda x: True],
 }
 ```
 
@@ -473,6 +489,74 @@ To test on a new server/PCIe, add an entry to the `servers` array for **each tes
         }
     ]
 }
+```
+
+### Per-level settings
+
+Besides `trex_multipliers`, a `settings` object can be defined at any level —
+`configuration` (global), test, server, or PCI entry. More specific levels
+override less specific ones: **pci > server > test > global**.
+
+Two keys are supported inside `settings`:
+
+| Key | Type | Description |
+|---|---|---|
+| `binary_search` | object | Default binary search parameters (`min`, `max`, `drop_rate`, `precision`). Used when `--binary-search` is not passed on the CLI. CLI always wins. |
+| `suricata_settings` | object | Key-value pairs applied to `suricata.yaml` via `ConfigBuilder.set_option` (equivalent of Suricata's `--set`). Merged per key across levels — a deeper level overrides only the keys it defines. |
+
+Example — global defaults, per-server binary search, per-test Suricata tuning:
+
+```json
+{
+    "configuration": {
+        "settings": {
+            "suricata_settings": {
+                "stream.reassembly.depth": "1mb"
+            }
+        },
+        "tests": [
+            {
+                "test_name": "test_http_norules",
+                "settings": {
+                    "suricata_settings": {
+                        "detect.profile": "high"
+                    }
+                },
+                "servers": [
+                    {
+                        "server_name": "claret",
+                        "settings": {
+                            "binary_search": {
+                                "min": 0.09,
+                                "max": 0.1,
+                                "drop_rate": 1,
+                                "precision": 0.01
+                            }
+                        },
+                        "pci": [
+                            {
+                                "pcie_addr": "0000:3b:00.0",
+                                "trex_multipliers": [0.1, 0.2, 0.3]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}
+```
+
+In this example the `claret` server runs binary search with `min=0.09, max=0.1`,
+and the generated `suricata.yaml` gets both `stream.reassembly.depth: "1mb"`
+(global) and `detect.profile: "high"` (test level).
+
+Individual Suricata keys can also be overridden from the CLI, which takes
+priority over both `test_settings.json` and `param.py` parametrized values.
+The overridden values are also recorded in `aggregated.json` result metadata:
+
+```bash
+pytest ... --suricata-set detect.profile=low stream.reassembly.depth=2mb
 ```
 
 ---
@@ -578,12 +662,14 @@ is preferred as it leads to simpler tuning and debugging. For examples see `http
 When defining an **STF profile** you might want to define `get_stf_profile` which should return a path to a
 [traffic profile](https://trex-tgn.cisco.com/trex/doc/trex_manual.html#_traffic_yaml_f_argument_of_stateful).
 You should generate these dynamically, since the profile contains MAC addresses and a mismatch will cause
-your packets to not be delivered.
+your packets to not be delivered. The base implementation generates the profile from the supplied pcaps
+and caches it under `.cache/` under a name derived from its inputs, so it is only regenerated when the
+inputs (pcaps, weights, TRex version) change; delete `.cache/` to force regeneration.
 
 You might also want to change some things in the [platform config](https://trex-tgn.cisco.com/trex/doc/trex_manual.html#_platform_yaml_cfg_argument)
 which can be done by defining an `stf_config_hook`. This function gets a `ConfigBuilder` instance with the config that would be sent to
 trex and you can either modify this or create a completely new `ConfigBuilder` instance.
-For examples see `realistic_traffic_trex_profile.py`
+For examples see `performance_tests/web_50_sites_trex_profile.py`
 
 **STL profiles** are defined only with a list of PCAPs and should really only be used as a simple fallback, but STF is preferred
 and can be used in the same situations as STL. When multiple PCAPs are supplied, the base class merges them into a single
@@ -596,6 +682,20 @@ duration-based replay. This is enabled with `--trex-stl-burst` (or `-sb` in
 
 You are not limited to one TRex mode per profile. For example you can define a TRex profile that has a native ASTF TRex config, which is used for
 the ASTF mode and `get_stf_profile` uses it to create an STF profile dynamically.
+
+### Local cache (`.cache/`)
+
+Generated transient files (merged and VLAN-tagged PCAPs, TRex/Suricata configs, ...) are cached under
+`.cache/` via `util/cache_util.py`. Cache names embed a short hash of the generating inputs, so identical
+inputs reuse the previously generated file and changed inputs never collide with stale artifacts.
+
+The cache has two scopes:
+
+- `.cache/persistent/` — kept until you delete it manually (default for PCAPs and TRex profiles).
+- `.cache/run/` — wiped once at the start of each pytest session (used for per-run config files).
+
+On a lookup, the run cache is checked before the persistent one. Delete `.cache/` (or use
+`util.cache_util.clear_cache()`) to force regeneration of everything.
 
 ---
 
@@ -721,4 +821,4 @@ Logging behavior is controlled via command-line options:
 | Hugepages not allocated | Check with `cat /proc/meminfo \| grep HugePages` on the Suricata server. |
 | NIC not bound to correct driver | Run `dpdk-devbind -s` on the Suricata server to check driver bindings. |
 | `sudo -E sh -c 'lshw -c network \| grep -c <PCIe> > /tmp/pcie_count'` has failed with code 1. | Check your PCIes for typos |
-| PCAP not updated after modifying source files | Source pcaps are cached on the TRex server. If a pcap was modified in place without being renamed, use `-fpu` / `--force-pcap-upload` to force re-upload. |
+| PCAP not updated after modifying source files | Source pcaps are cached on the TRex server. If a pcap was modified in place without being renamed, use `-fpu` / `--force-pcap-upload` to force re-upload. Locally cached artifacts derived from it (merged/vlan pcaps) also need regeneration — delete `.cache/` or include a `util.cache_util.file_fingerprint()` of the file in the cache key. |

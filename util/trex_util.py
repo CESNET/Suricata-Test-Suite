@@ -5,17 +5,17 @@ Copyright: (C) 2026 CESNET, z.s.p.o.
 SPDX-License-Identifier: BSD-3-Clause
 """
 
-import hashlib
 import logging
 import os
 import subprocess
 from enum import Enum
 from pathlib import Path
-from typing import Sequence, Tuple
 from scapy.all import PcapWriter, PcapReader
 
 import pytest
 from lbr_testsuite.executable import executable, remote_executor
+
+from util.cache_util import cache_path, try_cache
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +24,6 @@ class TrexMode(Enum):
     STL = 0
     ASTF = 1
     STF = 2
-
-
-PcapList = Sequence[Tuple[str, int | float]]
 
 
 def _packet_generator(
@@ -92,22 +89,34 @@ def _packet_generator(
             r.close()
 
 
-def merged_pcap_name(
+def get_merged_pcap(
     pcap_paths: list[Path],
     weights: list[float],
     max_packets: int | None = None,
-) -> str:
-    """Return a deterministic name for a merged pcap.
+) -> Path:
+    """Return the path to a merged pcap, generating it if not cached.
 
-    The name is derived from the source pcap filenames, weights, and
-    ``max_packets`` via a short hash.
+    The cache key is derived from the source pcap names, weights and
+    ``max_packets``, so an unchanged set of inputs reuses the previously
+    merged file instead of re-merging it; delete ``.cache/`` to force
+    regeneration.
     """
-    parts = [str(p.name) for p in pcap_paths]
-    parts += [str(w) for w in weights]
+    key_parts: list[object] = [str(p.name) for p in pcap_paths]
+    key_parts += [str(w) for w in weights]
     if max_packets is not None:
-        parts.append(str(max_packets))
-    digest = hashlib.md5("|".join(parts).encode()).hexdigest()[:12]
-    return f"stl_merged_{digest}.pcap"
+        key_parts.append(str(max_packets))
+
+    target_name = "merged.pcap"
+    merged_path = try_cache(target_name, key_parts)
+    if merged_path is not None:
+        return merged_path
+
+    return merge_pcaps(
+        pcap_paths,
+        weights,
+        cache_path(target_name, *key_parts),
+        max_packets,
+    )
 
 
 def merge_pcaps(
@@ -148,6 +157,8 @@ def merge_pcaps(
     total_w = sum(weights)
     if total_w <= 0:
         raise ValueError("sum of weights must be positive")
+
+    logger.info("Merging %d pcaps. This might take a while.", len(pcap_paths))
 
     # weighted round-robin: per-round packet count proportional to weight share
     quotas = [w / total_w for w in weights]

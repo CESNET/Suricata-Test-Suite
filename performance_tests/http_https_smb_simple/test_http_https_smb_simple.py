@@ -96,7 +96,6 @@ def test_http_https_smb(
         )
         tester.execute(multiplier)
         mult_iter.set_result(get_drop_rate())
-        logger.info("Run ended.")
 
     if mult_iter.result is not None:
         logger.progress(

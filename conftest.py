@@ -10,6 +10,7 @@ SPDX-License-Identifier: BSD-3-Clause
 
 import argparse
 import logging
+from math import log2
 import sys
 import pytest
 import os.path
@@ -24,11 +25,11 @@ import re
 from dataclasses import dataclass
 from lbr_testsuite.executable import executable, remote_executor
 from lbr_trex_client.interactive import trex
-from typing import Tuple, List
 from pathlib import Path
 from itertools import product
 from param import filter
-from util.config_builder import ConfigBuilder
+from util.cache_util import cache_path, clear_run_cache
+from util.config_builder import DEFAULT_SURICATA_CONF, ConfigBuilder
 from util.log_util import get_logger, setup_logging
 
 TIME_STR = time.strftime("-".join(["%Y", "%m", "%d", "%H:%M"]))
@@ -36,10 +37,14 @@ PATH_TO_ARTEFACTS: str = str(Path(__file__).parent / "results" / "artefacts")
 logger = get_logger(__name__)
 
 # Defaults for --trex-stl-burst when it is given without arguments: (PPS, PACKET_COUNT).
-STL_BURST_DEFAULTS: Tuple[float, int] = (200_000, 10_000_000)
+STL_BURST_DEFAULTS: tuple[float, int] = (200_000, 10_000_000)
 
 # alias lbr_trex_client.interactive.trex to trex for importing native TRex profiles
 sys.modules["trex"] = trex
+
+# Make the parent directory importable so that absolute package imports such as
+# ``suricata_pytests.assets...`` resolve when pytest is launched from this directory
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def get_run_dir_name(config) -> str:
@@ -85,9 +90,39 @@ def _log_level_type(value: str) -> str | int:
     )
 
 
-def _fmt_thousands(value: int) -> str:
+def fmt_thousands(value: int) -> str:
     """Format an integer with space thousands separators (e.g. 200000 -> '200 000')."""
     return f"{value:,}".replace(",", " ")
+
+
+def fmt_bytes(value: int) -> str:
+    """Format an integer as an SI prefixed amount of bytes.
+
+    If the value is an integer multiple of the -ibby (base 2)
+    prefixes, then those are used. For example 6GiB.
+
+    Otherwise normal (base 10) prefixes are used.
+    For example 42.67KB.
+    """
+    if value == 0:
+        return "0B"
+
+    sign = "-" if value < 0 else ""
+    value = abs(value)
+
+    binary_prefixes = ["KiB", "MiB", "GiB", "TiB", "PiB", "EiB"]
+    for i in range(len(binary_prefixes), 0, -1):
+        divisor = 1024**i
+        if value % divisor == 0:
+            return f"{sign}{value // divisor}{binary_prefixes[i - 1]}"
+
+    decimal_prefixes = ["B", "KB", "MB", "GB", "TB", "PB", "EB"]
+    index = min(int(log2(value) // log2(1000)), len(decimal_prefixes) - 1)
+    if index == 0:
+        return f"{sign}{value}B"
+
+    scaled = value / 1000**index
+    return f"{sign}{scaled:.2f}{decimal_prefixes[index]}"
 
 
 def _validate_stl_burst_option(config) -> None:
@@ -170,10 +205,14 @@ def pytest_addoption(parser):
     )
     parser.addoption(
         "--suricata-hugepages",
-        type=str,
+        type=_parse_size_to_bytes,
         default="6G",
         action="store",
-        help=("Specify amount of hugepages to be setup on remote machine. "),
+        help=(
+            "Specify amount of hugepages to be setup on remote machine. "
+            "If the machine already has less mounted, it is re-allocated "
+            "to this amount."
+        ),
     )
     parser.addoption(
         "--suricata-cfg",
@@ -284,8 +323,8 @@ def pytest_addoption(parser):
         help=(
             "In STL mode, send a fixed burst of PACKET_COUNT packets at PPS "
             "instead of replaying for the configured duration. With no "
-            f"arguments, defaults to {_fmt_thousands(int(STL_BURST_DEFAULTS[0]))} "
-            f"PPS and {_fmt_thousands(STL_BURST_DEFAULTS[1])} packets. Only "
+            f"arguments, defaults to {fmt_thousands(int(STL_BURST_DEFAULTS[0]))} "
+            f"PPS and {fmt_thousands(STL_BURST_DEFAULTS[1])} packets. Only "
             "applies to STL mode; ignored (with a warning) for other modes."
         ),
     )
@@ -301,6 +340,19 @@ def pytest_addoption(parser):
             "Accepts exactly 4 positional arguments: "
             "<min_multiplier> <max_multiplier> <drop_rate%%> <precision>. "
             "Example: --binary-search 0.0 10.0 1.0 0.05"
+        ),
+    )
+    parser.addoption(
+        "--suricata-set",
+        nargs="*",
+        type=str,
+        default=None,
+        metavar="KEY=VALUE",
+        action="store",
+        help=(
+            "Override suricata.yaml keys (applied like Suricata's --set). "
+            "Takes priority over suricata_settings in test_settings.json. "
+            "Example: --suricata-set stream.reassembly.depth=1mb"
         ),
     )
 
@@ -342,7 +394,7 @@ def get_trex_executor(request):
     return remote_executor.RemoteExecutor(host=trex_name, user=user)
 
 
-def get_host_internal(request) -> Tuple[str, str]:
+def get_host_internal(request) -> str:
     return request.config.getoption("--remote-host")
 
 
@@ -438,25 +490,51 @@ def get_target_vlan(request):
     return request.config.getoption("--target-vlan")
 
 
+def get_test_variant_name(request) -> str:
+    """Test name including the rules_config suffix, as used in test_settings.json."""
+    base = request.node.name.split("[")[0]
+    rules = request.node.callspec.params.get("rules_config", {})
+    suffix = rules.get("name", "")
+    return f"{base}_{suffix}" if suffix else base
+
+
 @pytest.fixture()
-def b_search(request):
+def b_search(request, suri_conf, get_settings_file):
     """Returns None if binary search is disabled, or a dict of params if enabled.
 
+    Priority: CLI --binary-search > test_settings.json levels > None.
     Dict keys: min, max, drop_rate, precision
     """
     val = request.config.getoption("--binary-search")
-    if val is None:
+    if val:
+        if len(val) != 4:
+            pytest.fail(
+                "--binary-search requires exactly 4 arguments: "
+                f"<min_multiplier> <max_multiplier> <drop_rate%> <precision>, got {len(val)}: {val}"
+            )
+        return {
+            "min": val[0],
+            "max": val[1],
+            "drop_rate": val[2],
+            "precision": val[3],
+        }
+
+    test_variant = get_test_variant_name(request)
+    cfg = get_binary_search(
+        get_settings_file, suri_conf.server, suri_conf.pcie, test_variant
+    )
+    if cfg is None:
+        if val is not None:
+            pytest.fail(
+                "--binary-search was requested, but no binary_search settings "
+                f"exist for {test_variant} on {suri_conf.server}/{suri_conf.pcie}"
+            )
         return None
-    if len(val) != 4:
-        pytest.fail(
-            "--binary-search requires exactly 4 arguments: "
-            f"<min_multiplier> <max_multiplier> <drop_rate%> <precision>, got {len(val)}: {val}"
-        )
     return {
-        "min": val[0],
-        "max": val[1],
-        "drop_rate": val[2],
-        "precision": val[3],
+        "min": float(cfg["min"]),
+        "max": float(cfg["max"]),
+        "drop_rate": float(cfg["drop_rate"]),
+        "precision": float(cfg["precision"]),
     }
 
 
@@ -482,7 +560,17 @@ def suri_interface_bind(request):
         elif af_packet_match is not None:
             return (request.node.callspec.params["params"][parameter_path], "af-packet")
 
-    assert dpdk_match is not None or af_packet_match is not None
+    raise ValueError("No interfaces to bind")
+
+
+def get_suricata_settings(test_settings_file, server, pci, test_name):
+    levels = resolve_level_settings(test_settings_file, server, pci, test_name)
+    merged: dict = {}
+    for level_name, level in reversed(levels):
+        if "suricata_settings" in level:
+            logger.debug("suricata_settings merged from %s level", level_name)
+            merged.update(level["suricata_settings"])
+    return merged
 
 
 @pytest.fixture(autouse=True)
@@ -509,21 +597,43 @@ def bind(request):
 
 @pytest.fixture(scope="function")
 def suricata_conf_file(request) -> ConfigBuilder:
-    destination_dir = Path(request.node.path).parent / "tmp"
-    editable_yaml = str(destination_dir / "suricata.yaml")
+    """Return a ConfigBuilder writing into the run-scoped cache.
 
-    os.makedirs(str(destination_dir), exist_ok=True)
-
+    The output path is derived from the source config, the test and its
+    callspec params, so different parametrizations do not overwrite each
+    other's generated configs.
+    """
+    source_conf = request.config.getoption("--suricata-cfg")
     test_local_cfg = Path(request.node.path).parent / "suricata.yaml"
-    if request.config.getoption("--suricata-cfg"):
-        builder = ConfigBuilder(
-            editable_yaml, request.config.getoption("--suricata-cfg")
-        )
-    elif test_local_cfg.is_file():
+    if source_conf is None and test_local_cfg.is_file():
+        source_conf = str(test_local_cfg)
         logger.debug("Using test-local Suricata config: %s", test_local_cfg)
-        builder = ConfigBuilder(editable_yaml, str(test_local_cfg))
-    else:
-        builder = ConfigBuilder(editable_yaml)
+    if source_conf is None:
+        source_conf = str(DEFAULT_SURICATA_CONF)
+
+    key_parts: list[str] = [source_conf, request.node.name]
+    editable_yaml = str(cache_path("suricata.yaml", *key_parts, persistent=False))
+
+    builder = ConfigBuilder(editable_yaml, source_conf)
+
+    settings_file = str(request.node.path.parent / "test_settings.json")
+    suri_settings = get_suricata_settings(
+        settings_file,
+        get_host_internal(request),
+        suri_interface_bind(request)[0],
+        get_test_variant_name(request),
+    )
+    for k, v in suri_settings.items():
+        builder.set_option(k, v)
+
+    # Applied last (in with_params/build) so that parametrization does not overwrite
+    cli_overrides: dict[str, str] = {}
+    for kv in request.config.getoption("--suricata-set") or []:
+        key, sep, value = kv.partition("=")
+        if not sep:
+            pytest.fail(f"--suricata-set expects KEY=VALUE, got {kv!r}")
+        cli_overrides[key] = value
+    builder.set_cli_overrides(cli_overrides)
 
     return builder
 
@@ -533,6 +643,16 @@ def result_path(request):
     return os.path.join(
         PATH_TO_ARTEFACTS, get_run_dir_name(request.config), request.function.__name__
     )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def run_cache_cleanup() -> None:
+    """Wipe the run-scoped cache (`.cache/run/`) at the start of the session.
+
+    Files that must persist across runs live in `.cache/persistent/` and are
+    left untouched; see `util/cache_util.py`.
+    """
+    clear_run_cache()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -585,29 +705,80 @@ def assert_available_machines(request) -> None:
     assert int(stdout) > 0, "Interface on host not found"
 
 
-def hugepages_allocated(request) -> bool:
-    process_cat_hugepages_count = executable.Tool(
-        "cat /proc/meminfo | grep 'HugePages_Free:' > /tmp/hugepages_allocated_info",
-        executor=get_suri_executor(request),
-        sudo=True,
-    )
-    process_cat_hugepages_count.run()
+def _parse_size_to_bytes(size: str) -> int:
+    """Parse a size string like ``6G``, ``512M`` or ``1024`` into bytes.
 
-    process_get_hugepages_count_str = executable.Tool(
-        "cat /tmp/hugepages_allocated_info",
-        sudo=True,
+    Supported suffixes are ``K``, ``M``, ``G``, ``T`` and ``P`` (binary
+    multiples). A bare number is interpreted as bytes. A unit is matched
+    loosely (any trailing characters) and validated against the multiplier
+    table below, so the space-separated form printed by ``/proc/meminfo``
+    (e.g. ``2048 kB``) is also accepted.
+    """
+    size = size.strip().upper()
+    match = re.fullmatch(r"(\d+)\s*([^\s]*)", size)
+    if not match:
+        raise ValueError(f"Couldn't parse byte count from {size!r}")
+    value = int(match.group(1))
+    unit = match.group(2) or ""
+    unit = unit.removesuffix("B")
+    multipliers = {
+        "": 1,
+        "K": 1024,
+        "M": 1024**2,
+        "G": 1024**3,
+        "T": 1024**4,
+        "P": 1024**5,
+    }
+    multiplier = multipliers.get(unit)
+    if multiplier is None:
+        raise ValueError(f"Unknown size unit {unit!r} in {size!r}")
+    return value * multiplier
+
+
+def hugepages_allocated(request) -> bool:
+    """Check whether the requested amount of hugepages is already allocated.
+
+    The check compares the currently allocated hugepage memory
+    (``HugePages_Total`` * ``Hugepagesize`` from ``/proc/meminfo``) against the
+    amount requested via ``--suricata-hugepages``. It returns ``True`` only if
+    the allocated amount is at least the requested one.
+
+    This ensures that increasing ``--suricata-hugepages`` on a machine that
+    already has hugepages mounted triggers a re-allocation instead of silently
+    ignoring the new request (the old implementation only checked that *some*
+    hugepages were free).
+    """
+    process_cat_hugepages_count = executable.Tool(
+        "cat /proc/meminfo | grep -E 'HugePages_Total:|Hugepagesize:'",
         executor=get_suri_executor(request),
+        sudo=True,
     )
-    stdout, stderr = process_get_hugepages_count_str.run()
+    stdout, stderr = process_cat_hugepages_count.run()
 
     assert stderr == "", (
         f"Error while gathering information about allocated hugepages: {stderr}"
     )
 
-    # huge_pages[0] == "HugePages_Free:", huge_pages[1] is some nubmer as `str`
-    huge_pages: List[str] = stdout.split()
+    # Parse HugePages_Total and Hugepagesize from the output, e.g.:
+    #   HugePages_Total:    3072
+    #   Hugepagesize:       2048 kB
+    total_pages = 0
+    page_size_bytes = 0
+    for line in stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        if parts[0] == "HugePages_Total:":
+            total_pages = int(parts[1])
+        elif parts[0] == "Hugepagesize:":
+            # The value carries its own unit (e.g. "2048 kB"), so reuse the
+            # size parser rather than assuming kB.
+            page_size_bytes = _parse_size_to_bytes(" ".join(parts[1:]))
 
-    return huge_pages[1] != "0"
+    allocated_bytes = total_pages * page_size_bytes
+    requested_bytes = request.config.getoption("--suricata-hugepages")
+
+    return allocated_bytes >= requested_bytes
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -616,16 +787,24 @@ def check_hugepages(request) -> None:
         logger.info("Huge-pages already allocated")
         return
 
-    logger.info(
-        "Allocating huge-pages: %s", request.config.getoption("--suricata-hugepages")
-    )
+    requested_bytes = request.config.getoption("--suricata-hugepages")
+    logger.info("Allocating huge-pages: %s bytes", requested_bytes)
     process_set_hugepages = executable.Tool(
-        f"dpdk-hugepages.py --setup {request.config.getoption('--suricata-hugepages')}",
+        f"dpdk-hugepages.py --setup {requested_bytes}",
         sudo=True,
         executor=get_suri_executor(request),
     )
 
-    _, stderr = process_set_hugepages.run()
+    try:
+        _, stderr = process_set_hugepages.run()
+    except executable.ExecutableProcessError as e:
+        logger.critical(
+            "Failed to allocate huge-pages (%s). Continuing with the "
+            "currently allocated huge-pages; tests that require more will "
+            "fail with a specific error.",
+            e,
+        )
+        return
 
     assert stderr == "", f"Error while allocating hugepages: {stderr}"
     logger.info("Huge-pages allocated successfully")
@@ -645,6 +824,7 @@ def import_module(param_file):
     spec = importlib.util.spec_from_file_location(
         module_name_of_param_file, module_path
     )
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -662,52 +842,73 @@ def parametrize_args(param_file):
     return
 
 
-def get_trex_multi(test_settings_file, server, pci, test_name):
-    logger.debug(
-        "Loading TRex multipliers: test=%s server=%s pci=%s", test_name, server, pci
-    )
+def resolve_level_settings(test_settings_file, server, pci, test_name):
+    """Return (merged_dict, levels) where merged_dict holds per-key winner.
+
+    Levels checked most-specific first: pci > server > test > global.
+    Each key is taken from the first level that defines it.
+    """
     file_is_accessible(test_settings_file)
     with open(test_settings_file) as f:
         data = json.load(f)
-    pcies = (
-        jq.compile(
-            f'.configuration.tests[] | select(.test_name == "{test_name}") | .servers[] | select(.server_name == "{server}") | .pci[] | .pcie_addr'
-        )
-        .input_value(data)
-        .all()
-    )
+
+    cfg = data["configuration"]
+    test = next((t for t in cfg["tests"] if t["test_name"] == test_name), None)
+    if test is None:
+        raise ValueError(f"No test {test_name} in {test_settings_file}")
+    srv = next((s for s in test["servers"] if s["server_name"] == server), None)
+    if srv is None:
+        raise ValueError(f"No server {server} in {test_settings_file}:{test_name}")
 
     group = None
-    for pattern in pcies:
+    for entry in srv["pci"]:
+        pattern = entry["pcie_addr"]
         try:
             if re.compile(pattern, re.IGNORECASE).fullmatch(pci) is not None:
-                group = pattern
-                logger.debug("PCI %s matched regex pattern %s", pci, pattern)
+                group = entry
                 break
         except re.error:
             if pci == pattern:
-                group = pattern
-                logger.debug(
-                    "PCI %s matched literal pattern %s (invalid regex)", pci, pattern
-                )
+                group = entry
                 break
-
     if group is None:
         raise ValueError(
             f"No match found for {server} and {pci} in {test_settings_file}:{test_name}"
         )
 
-    # re-escape backslashes
-    group = group.replace("\\", "\\\\")
+    levels = [
+        (
+            "pci",
+            {
+                **group.get("settings", {}),
+                **{k: v for k, v in group.items() if k == "trex_multipliers"},
+            },
+        ),
+        ("server", srv.get("settings", {})),
+        ("test", test.get("settings", {})),
+        ("global", cfg.get("settings", {})),
+    ]
+    return levels
 
-    multipliers = (
-        jq.compile(
-            f'.configuration.tests[] | select(.test_name == "{test_name}") | .servers[] | select(.server_name == "{server}") | .pci[] | select(.pcie_addr == "{group}") | .trex_multipliers'
-        )
-        .input_value(data)
-        .first()
-    )
-    logger.debug("Loaded multipliers for %s: %s", pci, multipliers)
+
+def get_setting(levels, key, required=False):
+    for level_name, level in levels:
+        if key in level:
+            logger.debug("Setting %s taken from %s level", key, level_name)
+            return level[key]
+    if required:
+        raise ValueError(f"No {key} defined at any level")
+    return None
+
+
+def get_binary_search(test_settings_file, server, pci, test_name):
+    levels = resolve_level_settings(test_settings_file, server, pci, test_name)
+    return get_setting(levels, "binary_search")
+
+
+def get_trex_multi(test_settings_file, server, pci, test_name):
+    levels = resolve_level_settings(test_settings_file, server, pci, test_name)
+    multipliers = get_setting(levels, "trex_multipliers", required=True)
     return [float(x) for x in multipliers]
 
 
@@ -771,6 +972,7 @@ def get_capture_modes(param_file):
     module = import_module(param_file)
     if hasattr(module, "capture_modes"):
         return module.capture_modes
+    return []
 
 
 def make_combinations_for_af_packet(queues, rx_descriptors):
@@ -823,17 +1025,18 @@ def setup_af_packet(request):
 
 
 def af_packet_get_queues_rx_descriptors(param_file, params):
+    parameters = None
+    key = None
     for parameter_path in params[-1].keys():
         af_packet_match = re.match(r"af-packet\[[0-9]+\].interface", parameter_path)
 
         if af_packet_match is not None:
-            key = af_packet_match.group(0)
             parameters = params[-1]
-        else:
-            return
+            key = af_packet_match.group(0)
+            break
 
-    queues_not_empty = False
-    rx_descriptors_not_empty = False
+    if parameters is None or key is None:
+        return
 
     file_is_accessible(param_file)
     module = import_module(param_file)
@@ -849,9 +1052,8 @@ def af_packet_get_queues_rx_descriptors(param_file, params):
             .replace("[", "")
             .replace("]", "")
         )
-        if query_result:  # empty str
-            queues = [int(i) for i in query_result.split(",")]
-            queues_not_empty = True
+        assert query_result, "queues cannot be empty because of settings"
+        queues = [int(i) for i in query_result.split(",")]
 
         query_result = (
             str(
@@ -864,13 +1066,8 @@ def af_packet_get_queues_rx_descriptors(param_file, params):
             .replace("[", "")
             .replace("]", "")
         )
-        if query_result:  # empty str
-            rx_descriptors = [int(i) for i in query_result.split(",")]
-            rx_descriptors_not_empty = True
-
-        assert (
-            queues_not_empty and rx_descriptors_not_empty
-        )  # cannot be empty because of settings
+        assert query_result, "rx_descriptors cannot be empty because of settings"
+        rx_descriptors = [int(i) for i in query_result.split(",")]
 
         combinations = make_combinations_for_af_packet(queues, rx_descriptors)
         params.pop()

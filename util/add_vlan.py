@@ -3,10 +3,13 @@ Copyright: (C) 2023 - 2026 CESNET, z.s.p.o.
 SPDX-License-Identifier: BSD-3-Clause
 """
 
-import dpkt
 import logging
 import socket
-import os
+from pathlib import Path
+
+import dpkt
+
+from util.cache_util import cache_path, try_cache
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +50,14 @@ def edit_vlan(pcap_filename, vlan_id):
     if vlan_id == 0:
         return pcap_filename
 
-    # zero padded vlan_id for predictability in .gitignore
-    created_pcap_filename = pcap_filename.replace(".pcap", f".vlan{vlan_id:03}.pcap")
-    if os.path.exists(created_pcap_filename):
-        logger.debug("Using existing VLAN-tagged pcap: %s", created_pcap_filename)
-        return created_pcap_filename
+    source_name = Path(pcap_filename).name
+    target_name = f"vlan{vlan_id}.pcap"
 
+    cached = try_cache(target_name, [source_name])
+    if cached is not None:
+        return str(cached)
+
+    created_pcap_filename = cache_path(target_name, source_name)
     logger.debug(
         "Creating VLAN-tagged pcap: %s -> %s (vlan_id=%d)",
         pcap_filename,
@@ -86,4 +91,4 @@ def edit_vlan(pcap_filename, vlan_id):
             except Exception:
                 writer.writepkt(buf, ts)  # Fallback for malformed packets
 
-        return created_pcap_filename
+        return str(created_pcap_filename)

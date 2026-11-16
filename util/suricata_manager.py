@@ -215,10 +215,8 @@ class Suricata_manager:
     def wait_on_start(self) -> None:
         """Wait until Suricata is started, then continue"""
         can_continue = False
-        self.last_start_delay = 0
+        start_time = time.time()
         while not can_continue:
-            time.sleep(1)
-            self.last_start_delay += 1
             process_wait_on_start = executable.Tool(
                 "suricatasc -c uptime",
                 sudo=True,
@@ -229,12 +227,15 @@ class Suricata_manager:
             try:
                 stdout, _ = process_wait_on_start.run()
                 can_continue = is_running(stdout)
-
             except ExecutableProcessError:
                 can_continue = False
                 logger.debug("Suricata is not started yet")
                 self.is_alive()
 
+            if not can_continue:
+                time.sleep(1)
+
+        self.last_start_delay = int(time.time() - start_time)
         logger.info("Suricata started after %d seconds", self.last_start_delay)
 
     def _wait_for_clean_start(self) -> None:

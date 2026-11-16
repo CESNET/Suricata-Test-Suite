@@ -9,10 +9,32 @@ Test runner class for Suricata tests.
 Provide a common interface for running Suricata tests, including setup, traffic generation, and stats collection.
 """
 
-import pytest
+from time import time
 
+import pytest
+import logging
+
+from conftest import fmt_bytes, fmt_thousands
 from util.suricata_manager import Suricata_manager, SuriDown
 from util.suri_util import RunInfo, save_stats, TestInfo
+
+logger = logging.getLogger(__name__)
+
+
+def _apply_cli_overrides(params: dict, request: pytest.FixtureRequest) -> dict:
+    """Return params merged with --suricata-set KEY=VALUE CLI overrides.
+
+    Overrides win over parametrized values so that result metadata reflects
+    the configuration Suricata actually ran with.
+    """
+    overrides: dict[str, str] = {}
+    for kv in request.config.getoption("--suricata-set") or []:
+        key, sep, value = kv.partition("=")
+        if sep:
+            overrides[key] = value
+    if not overrides:
+        return params
+    return {**params, **overrides}
 
 
 class TestRun:
@@ -25,13 +47,13 @@ class TestRun:
     ):
         self.suri_daemon = suri_daemon
         self.test_info = test_info
-        self.params = params
+        self.params = _apply_cli_overrides(params, request)
         self.request = request
 
     def _before_traffic(
         self, multiplier: float, duration: int | None, pcap: str | None = None
     ):
-        """Prepare TRex before suricata starts (select pcap, reset, set_props)."""
+        """Prepare TRex before Suricata starts (select pcap, reset)."""
 
     def _run_traffic(self, multiplier: float, duration: int | None, run_info: RunInfo):
         """Generate traffic. Suricata is already running."""
@@ -47,12 +69,10 @@ class TestRun:
         pcap: str | None = None,
         single_pass: bool = False,
     ):
-        """Run one traffic+stats cycle.
+        """Run one traffic and statistics collection cycle.
 
-        `duration=None` falls back to `test_info.traffic_duration`; pass
-        `single_pass=True` to explicitly disable the duration so the traffic
-        is bounded by the pcap content instead of time (each pcap is
-        transmitted exactly once).
+        With ``single_pass=True``, STL replays the selected pcap exactly once
+        instead of falling back to the configured traffic duration.
         """
         if duration is None and not single_pass:
             duration = self.test_info.traffic_duration
@@ -64,6 +84,7 @@ class TestRun:
         except SuriDown:
             pytest.fail("Suricata is down.")
 
+        start_time = time()
         run_info = RunInfo(multiplier=multiplier)
         try:
             self._run_traffic(multiplier, duration, run_info)
@@ -75,7 +96,14 @@ class TestRun:
 
         self._collect_stats(run_info)
         run_info.suricata_start_delay = self.suri_daemon.last_start_delay
-        save_stats(self.params, self.request, self.test_info, run_info)
+        stats = save_stats(self.params, self.request, self.test_info, run_info)
+
+        logger.info(
+            "Run ended (%ds, %s pkts, %s)",
+            int(time() - start_time),
+            fmt_thousands(stats.get("suricata_rx_packets", 0)),
+            fmt_bytes(stats.get("suricata_rx_bytes", 0)),
+        )
 
 
 class TrexTestRun(TestRun):
@@ -97,7 +125,8 @@ class TrexTestRun(TestRun):
     ):
         if pcap is not None:
             self.trex_client.set_pcap(pcap)
-        self.trex_client.set_props(multiplier, duration)
+        self.trex_client.multiplier = multiplier
+        self.trex_client.duration = duration
         self.trex_client.prepare()
 
     def _run_traffic(self, multiplier: float, duration: int | None, run_info: RunInfo):
