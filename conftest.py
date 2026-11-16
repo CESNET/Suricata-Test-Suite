@@ -603,7 +603,7 @@ def suricata_conf_file(request) -> ConfigBuilder:
     callspec params, so different parametrizations do not overwrite each
     other's generated configs.
     """
-    source_conf = request.config.getoption("--suricata-cfg")
+    source_conf = request.config.getoption("--suricata-cfg") or None
     test_local_cfg = Path(request.node.path).parent / "suricata.yaml"
     if source_conf is None and test_local_cfg.is_file():
         source_conf = str(test_local_cfg)
