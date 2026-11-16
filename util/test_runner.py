@@ -74,6 +74,11 @@ class TestRun:
         With ``single_pass=True``, STL replays the selected pcap exactly once
         instead of falling back to the configured traffic duration.
         """
+        if single_pass and self.trex_client.trex_request_burst is not None:
+            raise ValueError(
+                "Single-pass replay cannot be combined with --trex-stl-burst."
+            )
+        
         if duration is None and not single_pass:
             duration = self.test_info.traffic_duration
 
