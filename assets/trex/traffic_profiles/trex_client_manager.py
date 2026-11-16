@@ -830,6 +830,9 @@ class BaseTrexClientManager:
             try:
                 client.push_remote(**push_args)
             except TRexError:
+                if self.duration is None:
+                    # A single pass must not finish without a successful push.
+                    raise
                 # wait if port was not cleared yet
                 sleep(0.05)
             elapsed = time() - start
